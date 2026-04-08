@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #dc2626; /* Red-600 */
+  --color-secondary: #4b5563; /* Gray-600 */
+  --color-background: #ffffff;
+  --color-surface: #f9fafb;
+  --color-accent: #ef4444;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-[#1a1a1a] antialiased selection:bg-red-200 selection:text-red-900;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "ss01", "ss03", "cv01", "cv11";
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/80 backdrop-blur-md border border-white/20;
+  }
+
+  /* Custom Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
+  }
+
+  /* Verse spacing optimization */
+  .verse-item {
+    @apply py-0.5 px-3 border-l-2 border-transparent transition-all;
+  }
+  .verse-item.selected {
+    @apply bg-red-50 border-red-500;
+  }
+}
