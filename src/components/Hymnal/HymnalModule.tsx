@@ -13,11 +13,17 @@ import {
   ZoomIn, 
   ZoomOut,
   Music,
-  Check,
   FolderOpen,
-  Plus
+  Plus,
+  Layout,
+  Library,
+  RotateCcw,
+  PlayCircle as Youtube,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SavedContisModal } from './SavedContisModal';
 
 export const HymnalModule: React.FC = () => {
   const { 
@@ -26,7 +32,6 @@ export const HymnalModule: React.FC = () => {
     setSearchQuery, 
     selectedSongId, 
     setSelectedSongId, 
-    isSyncing,
     fetchSongs,
     albums,
     activeAlbumId,
@@ -36,14 +41,21 @@ export const HymnalModule: React.FC = () => {
     showBuilder,
     setShowBuilder,
     editingAlbum,
-    setEditingAlbum,
     processingProgress,
-    syncAlbum,
     processImages,
     updateAlbum,
     addAlbum,
     updateAlbumPath,
-    deleteAlbum
+    deleteAlbum,
+    contiItems,
+    addToConti,
+    setIsEditorOpen,
+    isLibraryOpen,
+    setIsLibraryOpen,
+    savedContis,
+    loadSavedConti,
+    deleteSavedConti,
+    clearConti
   } = useHymnal();
 
   // --- 로컬 전용 UI 상태 ---
@@ -55,12 +67,41 @@ export const HymnalModule: React.FC = () => {
   const [editedCode, setEditedCode] = useState('');
   const [editedMeter, setEditedMeter] = useState('');
   const [editedCategory, setEditedCategory] = useState('');
-  const [isCustomMeter, setIsCustomMeter] = useState(false);
   const [isDeleteOriginal, setIsDeleteOriginal] = useState(false);
   const [zoomScale, setZoomScale] = useState(0.6);
+  const [editedVideos, setEditedVideos] = useState<{name: string, url: string}[]>([]);
+  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
+  const [showYoutubePlayer, setShowYoutubePlayer] = useState(false);
+  const [isListOpen, setIsListOpen] = useState(true);
+
+  // 유튜브 URL 추출 헬퍼
+  const getYoutubeEmbedUrl = (url?: string) => {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : null;
+  };
+
+  const addEditedVideo = () => {
+    setEditedVideos([...editedVideos, { name: '', url: '' }]);
+  };
+  const removeEditedVideo = (index: number) => {
+    setEditedVideos(editedVideos.filter((_, i) => i !== index));
+  };
+  const updateEditedVideo = (index: number, field: 'name' | 'url', value: string) => {
+    const newVideos = [...editedVideos];
+    newVideos[index] = { ...newVideos[index], [field]: value };
+    setEditedVideos(newVideos);
+  };
 
   const selectedSong = filteredSongs.find(s => s.id === selectedSongId) as HymnalSong | undefined;
   const activeAlbum = albums.find(a => a.id === activeAlbumId);
+
+  const handleAddCurrentToConti = () => {
+    if (selectedSongId) {
+      addToConti(selectedSongId);
+    }
+  };
 
   // 초기 설정
   useEffect(() => {
@@ -76,6 +117,8 @@ export const HymnalModule: React.FC = () => {
     setZoomScale(0.6);
     setIsEditing(false);
     setIsDeleteOriginal(false); // 삭제 옵션 초기화
+    setShowYoutubePlayer(false); // 곡 변경 시 플레이어 닫기
+    setActiveVideoIndex(0); // 첫 번째 영상으로 초기화
   }, [selectedSongId]);
 
   // --- 편집 모드 핸들러 ---
@@ -88,7 +131,8 @@ export const HymnalModule: React.FC = () => {
       number: editedNumber,
       code: editedCode,
       meter: editedMeter,
-      category: editedCategory
+      category: editedCategory,
+      youtubeVideos: editedVideos
     });
 
     if (result.success) {
@@ -108,7 +152,7 @@ export const HymnalModule: React.FC = () => {
       setEditedCode(selectedSong.code || '');
       setEditedMeter(selectedSong.meter || '');
       setEditedCategory(selectedSong.category || '');
-      setIsCustomMeter(!['4/4', '3/4', '6/8', '12/8', '2/2', '4/6', ''].includes(selectedSong.meter || ''));
+      setEditedVideos(selectedSong.youtubeVideos || []);
       setIsEditing(true);
       setIsDeleteOriginal(false);
     }
@@ -141,76 +185,134 @@ export const HymnalModule: React.FC = () => {
   return (
     <div className="flex h-full w-full overflow-hidden bg-white">
       {/* 2단: 검색 및 곡 목록 (Middle Column) */}
-      <div className="w-80 border-r border-slate-100 flex flex-col bg-slate-50/30">
-        <div className="p-6 pb-4">
-          <div className="flex items-center gap-2 mb-4">
-             <div className="w-8 h-8 rounded-lg bg-red-500 flex items-center justify-center shadow-lg shadow-red-200">
-               <Music className="w-4 h-4 text-white" />
-             </div>
-             <h2 className="text-xl font-black text-slate-800 tracking-tight truncate">
-               {activeAlbumId === 'all' ? '전체 찬양' : activeAlbum?.name}
-             </h2>
-          </div>
-          
-          <div className="relative group">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-red-500 transition-colors" />
-            <input 
-              type="text"
-              placeholder="제목, 가사, 번호 검색..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-black focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 transition-all shadow-sm text-slate-900"
-            />
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-6">
-          {filteredSongs.length > 0 ? (
-            <div className="space-y-1.5">
-              <div className="px-3 py-2 flex items-center justify-between">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">곡 리스트</p>
-                <span className="text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded-full text-slate-400 font-bold">{filteredSongs.length}</span>
-              </div>
-              {filteredSongs.map((song) => (
-                <button
-                  key={song.id}
-                  onClick={() => setSelectedSongId(song.id)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all group ${
-                    selectedSongId === song.id 
-                      ? 'bg-white text-red-600 shadow-xl ring-1 ring-red-100' 
-                      : 'hover:bg-white hover:shadow-md text-slate-600'
-                  }`}
-                >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs transition-colors shrink-0 ${
-                    selectedSongId === song.id ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-red-50 group-hover:text-red-400'
-                  }`}>
-                    {song.number}
+      <AnimatePresence>
+        {isListOpen && (
+          <motion.div 
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: "fit-content", opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            className="border-r border-slate-100 flex flex-col bg-slate-50/30 shrink-0 overflow-hidden relative"
+          >
+            <div className="w-[22vw] min-w-[260px] max-w-[320px] flex flex-col h-full">
+              <div className="p-6 pb-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                     <div className="w-8 h-8 rounded-lg bg-red-500 flex items-center justify-center shadow-lg shadow-red-200">
+                       <Music className="w-4 h-4 text-white" />
+                     </div>
+                     <h2 className="text-xl font-black text-slate-800 tracking-tight truncate">
+                       {activeAlbumId === 'all' ? '전체 찬양' : activeAlbum?.name}
+                     </h2>
                   </div>
-                  <div className="flex-1 text-left min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-bold truncate leading-tight">{song.title}</p>
-                      {song.category && (
-                        <span className="text-[8px] px-1.5 py-0.5 bg-slate-50 text-slate-400 rounded-md font-black border border-slate-100 shrink-0">
-                          {song.category}
+                </div>
+
+                {/* New Conti Control Bar (Above Search) */}
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <button 
+                    onClick={() => setIsLibraryOpen(true)}
+                    className="flex flex-col items-center justify-center p-3 bg-white border border-slate-200 rounded-2xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group shadow-sm"
+                    title="저장된 콘티 저장소 열기"
+                  >
+                    <Library className="w-5 h-5 text-slate-400 group-hover:text-indigo-600 mb-1" />
+                    <span className="text-[10px] font-black text-slate-500 group-hover:text-indigo-600 uppercase tracking-tighter">저장소</span>
+                  </button>
+                  <button 
+                    onClick={() => setIsEditorOpen(true)}
+                    className="flex flex-col items-center justify-center p-3 bg-indigo-50 border border-indigo-100 rounded-2xl hover:bg-indigo-600 transition-all group shadow-sm"
+                    title="콘티 편집기 열기"
+                  >
+                    <div className="relative">
+                      <Layout className="w-5 h-5 text-indigo-600 group-hover:text-white mb-1" />
+                      {contiItems.length > 0 && (
+                        <span className="absolute -top-2 -right-2 w-4 h-4 bg-red-500 text-white text-[8px] flex items-center justify-center rounded-full border border-white font-black animate-pulse">
+                          {contiItems.length}
                         </span>
                       )}
                     </div>
-                    <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5">{song.lyrics}</p>
+                    <span className="text-[10px] font-black text-indigo-600 group-hover:text-white uppercase tracking-tighter">콘티 에디터</span>
+                  </button>
+                  <button 
+                    onClick={clearConti}
+                    className="flex flex-col items-center justify-center p-3 bg-white border border-slate-200 rounded-2xl hover:border-red-400 hover:bg-red-50 transition-all group shadow-sm"
+                    title="현재 선택한 모든 곡 취약"
+                  >
+                    <RotateCcw className="w-5 h-5 text-slate-400 group-hover:text-red-500 mb-1" />
+                    <span className="text-[10px] font-black text-slate-500 group-hover:text-red-500 uppercase tracking-tighter">선택취소</span>
+                  </button>
+                </div>
+                
+                
+                <div className="relative group">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-red-500 transition-colors" />
+                  <input 
+                    type="text"
+                    placeholder="제목, 가사, 번호 검색..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-black focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 transition-all shadow-sm text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-6">
+                {filteredSongs.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <div className="px-3 py-2 flex items-center justify-between">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">곡 리스트</p>
+                      <span className="text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded-full text-slate-400 font-bold">{filteredSongs.length}</span>
+                    </div>
+                    {filteredSongs.map((song) => (
+                      <button
+                        key={song.id}
+                        onClick={() => setSelectedSongId(song.id)}
+                        className={`w-full flex items-center gap-3 p-3 rounded-2xl transition-all group ${
+                          selectedSongId === song.id 
+                            ? 'bg-white text-red-600 shadow-xl ring-1 ring-red-100' 
+                            : 'hover:bg-white hover:shadow-md text-slate-600'
+                        }`}
+                      >
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs transition-colors shrink-0 ${
+                          selectedSongId === song.id ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-red-50 group-hover:text-red-400'
+                        }`}>
+                          {song.number}
+                        </div>
+                        <div className="flex-1 text-left min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-bold truncate leading-tight">{song.title}</p>
+                            {song.category && (
+                              <span className="text-[8px] px-1.5 py-0.5 bg-slate-50 text-slate-400 rounded-md font-black border border-slate-100 shrink-0">
+                                {song.category}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-medium truncate mt-0.5">{song.lyrics}</p>
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                </button>
-              ))}
+                ) : (
+                  <div className="py-20 text-center">
+                     <List className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                     <p className="text-sm text-slate-300 font-bold italic">검색 결과가 없습니다.</p>
+                  </div>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="py-20 text-center">
-               <List className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-               <p className="text-sm text-slate-300 font-bold italic">검색 결과가 없습니다.</p>
-            </div>
-          )}
-        </div>
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 3단: 악보 뷰어 영역 (Main Content) */}
       <div className="flex-1 flex flex-col relative bg-white overflow-hidden">
+        {/* List Toggle Button */}
+        <button 
+          onClick={() => setIsListOpen(!isListOpen)}
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-6 h-20 bg-white border border-l-0 border-slate-200 rounded-r-xl shadow-md z-30 flex items-center justify-center text-slate-400 hover:text-red-500 transition-all hover:bg-slate-50 group"
+          title={isListOpen ? "곡 목록 접기" : "곡 목록 펴기"}
+        >
+          {isListOpen ? <ChevronLeftIcon className="w-4 h-4" /> : <ChevronRightIcon className="w-4 h-4" />}
+        </button>
+
         <AnimatePresence mode="wait">
           {!selectedSongId ? (
             <motion.div 
@@ -277,9 +379,42 @@ export const HymnalModule: React.FC = () => {
                           className="w-20 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-900 shadow-sm"
                           placeholder="박자 (4/4)"
                         />
+                        <div className="flex-1 flex flex-col gap-2">
+                           {editedVideos.map((video, idx) => (
+                             <div key={idx} className="flex gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                               <input 
+                                 type="text"
+                                 value={video.name}
+                                 onChange={(e) => updateEditedVideo(idx, 'name', e.target.value)}
+                                 className="w-32 px-3 py-2 bg-white border border-slate-300 rounded-xl text-[10px] font-black text-slate-900 shadow-sm"
+                                 placeholder="영상 이름 (예: 라이브)"
+                               />
+                               <input 
+                                 type="text"
+                                 value={video.url}
+                                 onChange={(e) => updateEditedVideo(idx, 'url', e.target.value)}
+                                 className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-[10px] font-black text-slate-900 shadow-sm"
+                                 placeholder="유튜브 링크"
+                               />
+                               <button 
+                                 onClick={() => removeEditedVideo(idx)}
+                                 className="p-2 hover:bg-red-50 text-red-400 rounded-xl transition-colors"
+                               >
+                                 <Trash2 className="w-4 h-4" />
+                               </button>
+                             </div>
+                           ))}
+                           <button 
+                             onClick={addEditedVideo}
+                             className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black transition-all w-fit"
+                           >
+                             <Plus className="w-3 h-3" />
+                             영상 추가
+                           </button>
+                        </div>
                         <button 
                           onClick={handleUpdateSong}
-                          className="ml-auto px-6 py-2 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg shadow-red-200 hover:bg-red-700 transition-all"
+                          className="self-end px-6 py-2 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg shadow-red-200 hover:bg-red-700 transition-all"
                         >
                           저장 완료
                         </button>
@@ -336,12 +471,32 @@ export const HymnalModule: React.FC = () => {
                       
                       <div className="flex gap-2 self-start pt-1">
                         <button 
+                          onClick={handleAddCurrentToConti}
+                          className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-black transition-all flex items-center gap-2 border border-indigo-100 shadow-sm"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          콘티 담기
+                        </button>
+                        <button 
                           onClick={startEditing}
                           className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-black transition-all flex items-center gap-2"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                           상세 편집
                         </button>
+                        {selectedSong?.youtubeVideos && selectedSong.youtubeVideos.length > 0 && (
+                          <button 
+                            onClick={() => setShowYoutubePlayer(!showYoutubePlayer)}
+                            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 border shadow-sm ${
+                              showYoutubePlayer 
+                                ? 'bg-red-600 text-white border-red-600 shadow-red-100' 
+                                : 'bg-white text-red-600 border-red-100 hover:bg-red-50'
+                            }`}
+                          >
+                            <Youtube className="w-4 h-4" />
+                            {showYoutubePlayer ? '영상 닫기' : `영상 보기 (${selectedSong.youtubeVideos.length})`}
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -349,8 +504,9 @@ export const HymnalModule: React.FC = () => {
               </div>
 
               {/* Viewer Main Body */}
-              <div className="flex-1 overflow-auto bg-slate-50/50 p-8 custom-scrollbar relative">
-                {isEditing && (
+              <div className="flex-1 flex overflow-hidden bg-slate-50/50">
+                <div className="flex-1 overflow-auto p-8 custom-scrollbar relative">
+                  {isEditing && (
                   <div className="mb-8 max-w-4xl mx-auto">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">가사 편집</p>
                     <textarea 
@@ -376,35 +532,120 @@ export const HymnalModule: React.FC = () => {
                       className="w-full h-auto block" 
                       draggable={false}
                     />
+                  </div>
+                </div>
+
+                {/* Youtube Player Side Panel */}
+                <AnimatePresence>
+                  {showYoutubePlayer && selectedSong?.youtubeVideos && selectedSong.youtubeVideos.length > 0 && (
+                    <motion.div 
+                      key="youtube-player"
+                      initial={{ width: 0, opacity: 0 }}
+                      animate={{ width: "55vw", opacity: 1 }}
+                      exit={{ width: 0, opacity: 0 }}
+                      className="h-full bg-white border-l border-slate-100 flex flex-col shadow-2xl relative z-30 shrink-0"
+                    >
+                      <div className="w-[55vw] min-w-[500px] max-w-[900px] flex flex-col h-full overflow-hidden">
+                        <div className="p-4 border-b border-slate-50 flex items-center justify-between bg-white shrink-0">
+                          <div className="flex items-center gap-2">
+                             <Youtube className="w-5 h-5 text-red-600" />
+                             <span className="text-xs font-black text-slate-800">찬양 영상 라이브러리</span>
+                          </div>
+                          <button onClick={() => setShowYoutubePlayer(false)} className="p-1 hover:bg-slate-100 rounded-lg"><X className="w-4 h-4 text-slate-400" /></button>
+                        </div>
+
+                        {/* Video Playlist */}
+                        <div className="p-3 bg-slate-50 flex flex-col gap-1.5 overflow-y-auto max-h-[30%] custom-scrollbar min-h-[100px] shrink-0">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 mb-1">영상 선택</p>
+                          {selectedSong.youtubeVideos.map((video, idx) => (
+                            <button 
+                              key={idx}
+                              onClick={() => setActiveVideoIndex(idx)}
+                              className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all border ${
+                                activeVideoIndex === idx 
+                                  ? 'bg-red-500 text-white border-red-400 shadow-md' 
+                                  : 'bg-white text-slate-600 border-slate-100 hover:border-red-200'
+                              }`}
+                            >
+                              <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                                activeVideoIndex === idx ? 'bg-white/20' : 'bg-slate-100 text-slate-400'
+                              }`}>
+                                <span className="text-[10px] font-black">{idx + 1}</span>
+                              </div>
+                              <span className="text-xs font-bold truncate flex-1 text-left">{video.name || `영상 ${idx + 1}`}</span>
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Player Container - No longer flex-1 to remove blue gaps */}
+                        <div className="bg-slate-950 flex items-center justify-center overflow-hidden w-full aspect-video shrink-0">
+                          {selectedSong.youtubeVideos[activeVideoIndex]?.url && getYoutubeEmbedUrl(selectedSong.youtubeVideos[activeVideoIndex].url) ? (
+                            <iframe 
+                              key={selectedSong.youtubeVideos[activeVideoIndex].url}
+                              width="100%" 
+                              height="100%" 
+                              src={`${getYoutubeEmbedUrl(selectedSong.youtubeVideos[activeVideoIndex].url)}?autoplay=1`}
+                              title="YouTube video player" 
+                              frameBorder="0" 
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                              allowFullScreen
+                              className="aspect-video"
+                            ></iframe>
+                          ) : (
+                            <div className="text-center p-10">
+                              <p className="text-sm font-bold text-slate-500">올바른 유튜브 링크가 아닙니다.</p>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="p-4 bg-slate-50 border-t border-slate-100 flex-1">
+                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">현재 재생 중</p>
+                           <p className="text-xs font-bold text-slate-700 truncate">{selectedSong.youtubeVideos[activeVideoIndex]?.name || selectedSong.title}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Floating Zoom Controls - Positioned relative to the score area */}
+                <div 
+                  className="absolute bottom-10 left-1/2 z-20 transition-all duration-300"
+                  style={{ 
+                    transform: `translateX(calc(-50% - ${
+                      (showYoutubePlayer && selectedSong?.youtubeVideos?.length ? 27.5 : 0) // Youtube width in vw/2 logic
+                      + (isListOpen ? 0 : 0) // Mid list logic
+                    }vw${
+                      (showYoutubePlayer && selectedSong?.youtubeVideos?.length ? ' - 0px' : '')
+                    }))` 
+                  }}
+                >
+                  <div className="flex items-center bg-white/90 text-slate-700 rounded-full shadow-xl p-1.5 gap-1 backdrop-blur-md border border-slate-200">
+                    <button 
+                      onClick={() => setZoomScale(Math.max(zoomScale - 0.2, 0.4))}
+                      className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                    >
+                      <ZoomOut className="w-4 h-4" />
+                    </button>
+                    <div className="px-3 min-w-[50px] text-center border-x border-slate-100">
+                      <span className="text-xs font-black">{Math.round(zoomScale * 100)}%</span>
+                    </div>
+                    <button 
+                      onClick={() => setZoomScale(Math.min(zoomScale + 0.2, 3))}
+                      className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => setZoomScale(0.6)}
+                      className="ml-1 px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-full text-[10px] font-black transition-all active:scale-95"
+                    >
+                      &lt;기본&gt;
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Floating Zoom Controls */}
-              <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20">
-                <div className="flex items-center bg-slate-900 text-white rounded-full shadow-2xl p-2 gap-1 backdrop-blur-md bg-opacity-90 ring-1 ring-white/10">
-                  <button 
-                    onClick={() => setZoomScale(Math.max(zoomScale - 0.2, 0.4))}
-                    className="p-3 hover:bg-white/10 rounded-full transition-colors"
-                  >
-                    <ZoomOut className="w-5 h-5" />
-                  </button>
-                  <div className="px-4 min-w-[70px] text-center border-x border-white/10">
-                    <span className="text-sm font-black">{Math.round(zoomScale * 100)}%</span>
-                  </div>
-                  <button 
-                    onClick={() => setZoomScale(Math.min(zoomScale + 0.2, 3))}
-                    className="p-3 hover:bg-white/10 rounded-full transition-colors"
-                  >
-                    <ZoomIn className="w-5 h-5" />
-                  </button>
-                  <button 
-                    onClick={() => setZoomScale(0.6)}
-                    className="ml-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 rounded-full text-xs font-black transition-all active:scale-95"
-                  >
-                    기본(60%)
-                  </button>
-                </div>
-              </div>
+              {/* Old Floating Zoom Controls 위치 (삭제됨) */}
             </motion.div>
           )}
         </AnimatePresence>
@@ -593,6 +834,14 @@ export const HymnalModule: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      <SavedContisModal 
+        isOpen={isLibraryOpen}
+        onClose={() => setIsLibraryOpen(false)}
+        savedContis={savedContis}
+        onLoad={loadSavedConti}
+        onDelete={deleteSavedConti}
+      />
     </div>
   );
 };

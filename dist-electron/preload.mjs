@@ -39,7 +39,10 @@ electron.contextBridge.exposeInMainWorld("ipcRenderer", {
 		deleteSong: (songId) => electron.ipcRenderer.invoke("hymnal:delete-song", songId),
 		exportCSV: (args) => electron.ipcRenderer.invoke("hymnal:export-csv", args),
 		importCSV: () => electron.ipcRenderer.invoke("hymnal:import-csv"),
-		openExternal: (url) => electron.ipcRenderer.send("hymnal:open-external", url)
+		openExternal: (url) => electron.ipcRenderer.send("hymnal:open-external", url),
+		getSavedContis: () => electron.ipcRenderer.invoke("hymnal:get-saved-contis"),
+		saveConti: (conti) => electron.ipcRenderer.invoke("hymnal:save-conti", conti),
+		deleteSavedConti: (id) => electron.ipcRenderer.invoke("hymnal:delete-saved-conti", id)
 	}
 });
 //#endregion

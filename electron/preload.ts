@@ -44,6 +44,11 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
     deleteSong: (songId: string) => ipcRenderer.invoke('hymnal:delete-song', songId),
     exportCSV: (args?: any) => ipcRenderer.invoke('hymnal:export-csv', args),
     importCSV: () => ipcRenderer.invoke('hymnal:import-csv'),
-    openExternal: (url: string) => ipcRenderer.send('hymnal:open-external', url)
+    openExternal: (url: string) => ipcRenderer.send('hymnal:open-external', url),
+    
+    // Conti Storage
+    getSavedContis: () => ipcRenderer.invoke('hymnal:get-saved-contis'),
+    saveConti: (conti: any) => ipcRenderer.invoke('hymnal:save-conti', conti),
+    deleteSavedConti: (id: string) => ipcRenderer.invoke('hymnal:delete-saved-conti', id)
   }
-})
+});

@@ -12,9 +12,57 @@ export function registerHymnalIPC(win: BrowserWindow) {
   
   const gdrive = new GDriveService(app.getPath('userData'));
   const settingsPath = path.join(hymnalDir, 'settings.json');
+  const contisPath = path.join(hymnalDir, 'saved_contis.json');
   
   // DB 경로 터미널 출력
   console.log(`[Hymnal] Database Path: ${dbPath}`);
+
+  // --- Saved Conti API ---
+  ipcMain.handle('hymnal:get-saved-contis', async () => {
+    try {
+      const data = await fs.readFile(contisPath, 'utf8');
+      return JSON.parse(data);
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle('hymnal:save-conti', async (_, conti) => {
+    try {
+      // 저장 폴더가 없으면 생성
+      await fs.mkdir(hymnalDir, { recursive: true });
+
+      let contis = [];
+      try {
+        const data = await fs.readFile(contisPath, 'utf8');
+        contis = JSON.parse(data);
+      } catch {}
+
+      const idx = contis.findIndex((c: any) => c.id === conti.id);
+      if (idx !== -1) {
+        contis[idx] = { ...contis[idx], ...conti, updatedAt: new Date().toISOString() };
+      } else {
+        contis.push({ ...conti, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      }
+
+      await fs.writeFile(contisPath, JSON.stringify(contis, null, 2), 'utf-8');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('hymnal:delete-saved-conti', async (_, id) => {
+    try {
+      const data = await fs.readFile(contisPath, 'utf8');
+      let contis = JSON.parse(data);
+      contis = contis.filter((c: any) => c.id !== id);
+      await fs.writeFile(contisPath, JSON.stringify(contis, null, 2), 'utf-8');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
   
   // 설정 정보 로드/프리셋 (신규: 다중 앨범 마이그레이션 적용)
   const getSettings = async () => {
@@ -56,6 +104,36 @@ const sanitizeFilename = (num: number, title: string, id?: string) => {
   return `${num}_${clean}${uniqueId}.webp`;
 };
 
+// [Helper] 박자 데이터가 날짜(예: 4월 4일)로 오인된 경우 정정
+const sanitizeMeter = (val: any): string => {
+  if (val === undefined || val === null) return '';
+  let str = val.toString().trim();
+  if (!str) return '';
+
+  // 1. 한글 날짜 형식: "4월 4일" -> "4/4"
+  const korDateMatch = str.match(/^(\d{1,2})\s*월\s*(\d{1,2})\s*일$/);
+  if (korDateMatch) return `${korDateMatch[1]}/${korDateMatch[2]}`;
+
+  // 2. 영문 날짜 형식: "04-Apr" 또는 "4-Apr" -> "4/4"
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const engDateMatch = str.match(/^(\d{1,2})-([a-zA-Z]{3})$/i);
+  if (engDateMatch) {
+    const month = engDateMatch[2].toLowerCase();
+    const monthIdx = months.indexOf(month) + 1;
+    if (monthIdx > 0) return `${monthIdx}/${engDateMatch[1]}`;
+  }
+  
+  // 3. 역순 영문 날짜: "Apr-04"
+  const engDateMatchRev = str.match(/^([a-zA-Z]{3})-(\d{1,2})$/i);
+  if (engDateMatchRev) {
+    const month = engDateMatchRev[1].toLowerCase();
+    const monthIdx = months.indexOf(month) + 1;
+    if (monthIdx > 0) return `${monthIdx}/${engDateMatchRev[2]}`;
+  }
+
+  return str;
+};
+
 
   // Get All Songs from userData (With dynamic migration)
   ipcMain.handle('hymnal:get-songs', async () => {
@@ -70,6 +148,13 @@ const sanitizeFilename = (num: number, title: string, id?: string) => {
         if (song.title) song.title = song.title.normalize('NFC');
         if (song.lyrics) song.lyrics = song.lyrics.normalize('NFC');
         if (song.category) song.category = song.category.normalize('NFC');
+
+        // [New] 유튜브 데이터 마이그레이션: 하나만 있던 이전 링크를 목록 형식으로 변환
+        if (song.youtubeUrl && (!song.youtubeVideos || song.youtubeVideos.length === 0)) {
+          song.youtubeVideos = [{ name: '기본 영상', url: song.youtubeUrl }];
+          // youtubeUrl은 남겨두거나 명시적으로 처리는 상황에 따라 (여기서는 보존하되 신규 필드 우선)
+          changed = true;
+        }
 
         if (song.filename) {
           const expectedName = sanitizeFilename(song.number, song.title, song.id);
@@ -209,7 +294,7 @@ const sanitizeFilename = (num: number, title: string, id?: string) => {
                 title: (row['제목'] || row['title'] || '').toString(), 
                 category: (row['분류'] || row['주제'] || row['구분'] || row['category'] || '').toString(),
                 code: (row['코드'] || row['code'] || '').toString(),
-                meter: (row['박자'] || row['meter'] || '').toString(),
+                meter: sanitizeMeter(row['박자'] || row['meter'] || ''),
                 lyrics: (row['가사'] || row['lyrics'] || '').toString()
               };
             }
@@ -413,15 +498,18 @@ const sanitizeFilename = (num: number, title: string, id?: string) => {
     try {
       const content = await fs.readFile(dbPath, 'utf8');
       const data = JSON.parse(content);
-      
+      const settings = await getSettings();
       let filteredData = data;
-      if (mode === 'hymnal') {
-        filteredData = data.filter((s: any) => s.id.startsWith('hymnal-'));
-      } else if (mode === 'ccm') {
-        filteredData = data.filter((s: any) => s.id.startsWith('ccm-'));
+      let exportName = '전체';
+
+      if (mode && mode !== 'all') {
+        filteredData = data.filter((s: any) => s.id.startsWith(mode + '-'));
+        const album = settings.albums.find((a: any) => a.id === mode);
+        if (album) exportName = album.name;
+        else exportName = mode;
       }
 
-      const header = ['ID', '번호', '제목', '코드', '박자', '가사', '카테고리', '파일명'].join(',');
+      const header = ['ID', '번호', '제목', '코드', '박자', '가사', '카테고리', '파일명', '유튜브'].join(',');
       const rows = filteredData.map((s: any) => {
         const fields = [
           s.id,
@@ -431,16 +519,21 @@ const sanitizeFilename = (num: number, title: string, id?: string) => {
           s.meter,
           s.lyrics,
           s.category,
-          s.filename
+          s.filename,
+          // 다중 유튜브 데이터는 JSON으로 직렬화하여 저장
+          s.youtubeVideos ? JSON.stringify(s.youtubeVideos) : (s.youtubeUrl ? JSON.stringify([{ name: '기본 영상', url: s.youtubeUrl }]) : '')
         ].map(val => {
           let str = (val === undefined || val === null ? '' : val).toString();
           
           // Mac-Windows 한글 자모 분리 방지 (NFC 정규화)
           str = str.normalize('NFC');
 
-          // Excel 수식 오인 방지 (#NAME? 오류 해결)
+          // Excel 수식 또는 날짜 오인 방지 (#NAME? 오류 및 날짜 변환 해결)
           if (str.startsWith('=') || str.startsWith('-') || str.startsWith('+')) {
             str = "'" + str; 
+          } else if (/^\d{1,2}\/\d{1,2}$/.test(str)) {
+             // 4/4 와 같은 박자 형식이면 앞에 작은따옴표를 붙여 엑셀이 날짜로 바꾸지 않게 함
+             str = "'" + str;
           }
 
           // CSV 필드 이중 따옴표 및 줄바꿈 처리
@@ -450,7 +543,7 @@ const sanitizeFilename = (num: number, title: string, id?: string) => {
       });
 
       const dateStr = new Date().toISOString().split('T')[0];
-      const defaultFilename = `hymnal_data_${mode || 'all'}_${dateStr}.csv`;
+      const defaultFilename = `찬양데이터_${exportName}_${dateStr}.csv`;
 
       const { filePath } = await dialog.showSaveDialog(win, {
         title: '데이터 내보내기',
@@ -503,10 +596,20 @@ const sanitizeFilename = (num: number, title: string, id?: string) => {
           number: parseInt(cleanStr(parts[1]), 10) || 0,
           title: cleanStr(parts[2]),
           code: cleanStr(parts[3]),
-          meter: cleanStr(parts[4]),
+          meter: sanitizeMeter(cleanStr(parts[4])),
           lyrics: cleanStr(parts[5]),
           category: cleanStr(parts[6]),
-          filename: cleanStr(parts[7])
+          filename: cleanStr(parts[7]),
+          youtubeVideos: (() => {
+            const raw = cleanStr(parts[8]);
+            try {
+              if (raw.startsWith('[')) return JSON.parse(raw);
+              if (raw) return [{ name: '기본 영상', url: raw }];
+              return [];
+            } catch (e) {
+              return [];
+            }
+          })()
         };
       });
 

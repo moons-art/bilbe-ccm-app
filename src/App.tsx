@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { BibleProvider, useBible } from './stores/BibleProvider';
-import { HymnalProvider } from './stores/HymnalProvider';
+import { HymnalProvider, useHymnal } from './stores/HymnalProvider';
 import { FileUploader } from './components/FileUploader';
 import { BibleViewer } from './components/BibleViewer';
 import { HymnalModule } from './components/Hymnal/HymnalModule';
 import { HymnalSidebar } from './components/Hymnal/HymnalSidebar';
+import { ContiEditor } from './components/Hymnal/ContiEditor';
 import { Menu, Search, BookOpen, Settings, X, Plus, Check, ChevronLeft, ChevronRight, ChevronDown, Trash2, Edit2, Type, AlignLeft, Music } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { searchService, type SearchRange } from './services/searchService';
@@ -24,6 +25,7 @@ const MainApp: React.FC = () => {
     showVersionInCopy,
     setShowVersionInCopy 
   } = useBible();
+  const { isEditorOpen } = useHymnal();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -122,11 +124,11 @@ const MainApp: React.FC = () => {
         {isSidebarOpen && (
           <motion.aside
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 280, opacity: 1 }}
+            animate={{ width: "fit-content", opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
-            className="glass border-r border-slate-200 h-full relative z-20 overflow-hidden bg-white shadow-xl"
+            className="glass border-r border-slate-200 h-full relative z-20 overflow-hidden bg-white shadow-xl shrink-0"
           >
-            <div className="p-6 h-full flex flex-col w-[280px]">
+            <div className="p-6 h-full flex flex-col w-[18vw] min-w-[220px] max-w-[280px]">
               {/* Header */}
               <div className="flex items-center justify-between mb-8">
                 <h1 className="text-xl font-bold bg-gradient-to-r from-red-600 to-red-400 bg-clip-text text-transparent">
@@ -675,6 +677,10 @@ const MainApp: React.FC = () => {
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isEditorOpen && <ContiEditor />}
       </AnimatePresence>
     </div>
   );

@@ -8,6 +8,8 @@ export interface HymnalSong {
   category: string; // '찬송가', 'CCM' 등의 대분류 또는 상세 분류명(찬양, 감사 등)
   code?: string;
   meter?: string;
+  youtubeUrl?: string; // Legacy
+  youtubeVideos?: { name: string; url: string; }[];
   isManual?: boolean;
 }
 

@@ -21856,7 +21856,58 @@ function registerHymnalIPC(win) {
 	const dbPath = path.join(hymnalDir, "music_data.json");
 	const gdrive = new GDriveService(app.getPath("userData"));
 	const settingsPath = path.join(hymnalDir, "settings.json");
+	const contisPath = path.join(hymnalDir, "saved_contis.json");
 	console.log(`[Hymnal] Database Path: ${dbPath}`);
+	ipcMain.handle("hymnal:get-saved-contis", async () => {
+		try {
+			const data = await fs$1.readFile(contisPath, "utf8");
+			return JSON.parse(data);
+		} catch {
+			return [];
+		}
+	});
+	ipcMain.handle("hymnal:save-conti", async (_, conti) => {
+		try {
+			await fs$1.mkdir(hymnalDir, { recursive: true });
+			let contis = [];
+			try {
+				const data = await fs$1.readFile(contisPath, "utf8");
+				contis = JSON.parse(data);
+			} catch {}
+			const idx = contis.findIndex((c) => c.id === conti.id);
+			if (idx !== -1) contis[idx] = {
+				...contis[idx],
+				...conti,
+				updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			};
+			else contis.push({
+				...conti,
+				createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+				updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+			});
+			await fs$1.writeFile(contisPath, JSON.stringify(contis, null, 2), "utf-8");
+			return { success: true };
+		} catch (err) {
+			return {
+				success: false,
+				error: err.message
+			};
+		}
+	});
+	ipcMain.handle("hymnal:delete-saved-conti", async (_, id) => {
+		try {
+			const data = await fs$1.readFile(contisPath, "utf8");
+			let contis = JSON.parse(data);
+			contis = contis.filter((c) => c.id !== id);
+			await fs$1.writeFile(contisPath, JSON.stringify(contis, null, 2), "utf-8");
+			return { success: true };
+		} catch (err) {
+			return {
+				success: false,
+				error: err.message
+			};
+		}
+	});
 	const getSettings = async () => {
 		try {
 			const data = await fs$1.readFile(settingsPath, "utf8");
@@ -21895,6 +21946,40 @@ function registerHymnalIPC(win) {
 	const sanitizeFilename = (num, title, id) => {
 		return `${num}_${(title || "").normalize("NFC").replace(/[^가-힣a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "_").slice(0, 30)}${id ? `_${id.slice(-4)}` : ""}.webp`;
 	};
+	const sanitizeMeter = (val) => {
+		if (val === void 0 || val === null) return "";
+		let str = val.toString().trim();
+		if (!str) return "";
+		const korDateMatch = str.match(/^(\d{1,2})\s*월\s*(\d{1,2})\s*일$/);
+		if (korDateMatch) return `${korDateMatch[1]}/${korDateMatch[2]}`;
+		const months = [
+			"jan",
+			"feb",
+			"mar",
+			"apr",
+			"may",
+			"jun",
+			"jul",
+			"aug",
+			"sep",
+			"oct",
+			"nov",
+			"dec"
+		];
+		const engDateMatch = str.match(/^(\d{1,2})-([a-zA-Z]{3})$/i);
+		if (engDateMatch) {
+			const month = engDateMatch[2].toLowerCase();
+			const monthIdx = months.indexOf(month) + 1;
+			if (monthIdx > 0) return `${monthIdx}/${engDateMatch[1]}`;
+		}
+		const engDateMatchRev = str.match(/^([a-zA-Z]{3})-(\d{1,2})$/i);
+		if (engDateMatchRev) {
+			const month = engDateMatchRev[1].toLowerCase();
+			const monthIdx = months.indexOf(month) + 1;
+			if (monthIdx > 0) return `${monthIdx}/${engDateMatchRev[2]}`;
+		}
+		return str;
+	};
 	ipcMain.handle("hymnal:get-songs", async () => {
 		try {
 			const content = await fs$1.readFile(dbPath, "utf8");
@@ -21904,6 +21989,13 @@ function registerHymnalIPC(win) {
 				if (song.title) song.title = song.title.normalize("NFC");
 				if (song.lyrics) song.lyrics = song.lyrics.normalize("NFC");
 				if (song.category) song.category = song.category.normalize("NFC");
+				if (song.youtubeUrl && (!song.youtubeVideos || song.youtubeVideos.length === 0)) {
+					song.youtubeVideos = [{
+						name: "기본 영상",
+						url: song.youtubeUrl
+					}];
+					changed = true;
+				}
 				if (song.filename) {
 					const expectedName = sanitizeFilename(song.number, song.title, song.id);
 					if (song.filename !== expectedName) {
@@ -22016,7 +22108,7 @@ function registerHymnalIPC(win) {
 						title: (row["제목"] || row["title"] || "").toString(),
 						category: (row["분류"] || row["주제"] || row["구분"] || row["category"] || "").toString(),
 						code: (row["코드"] || row["code"] || "").toString(),
-						meter: (row["박자"] || row["meter"] || "").toString(),
+						meter: sanitizeMeter(row["박자"] || row["meter"] || ""),
 						lyrics: (row["가사"] || row["lyrics"] || "").toString()
 					};
 				});
@@ -22188,9 +22280,15 @@ function registerHymnalIPC(win) {
 		try {
 			const content = await fs$1.readFile(dbPath, "utf8");
 			const data = JSON.parse(content);
+			const settings = await getSettings();
 			let filteredData = data;
-			if (mode === "hymnal") filteredData = data.filter((s) => s.id.startsWith("hymnal-"));
-			else if (mode === "ccm") filteredData = data.filter((s) => s.id.startsWith("ccm-"));
+			let exportName = "전체";
+			if (mode && mode !== "all") {
+				filteredData = data.filter((s) => s.id.startsWith(mode + "-"));
+				const album = settings.albums.find((a) => a.id === mode);
+				if (album) exportName = album.name;
+				else exportName = mode;
+			}
 			const header = [
 				"ID",
 				"번호",
@@ -22199,7 +22297,8 @@ function registerHymnalIPC(win) {
 				"박자",
 				"가사",
 				"카테고리",
-				"파일명"
+				"파일명",
+				"유튜브"
 			].join(",");
 			const rows = filteredData.map((s) => {
 				return [
@@ -22210,16 +22309,21 @@ function registerHymnalIPC(win) {
 					s.meter,
 					s.lyrics,
 					s.category,
-					s.filename
+					s.filename,
+					s.youtubeVideos ? JSON.stringify(s.youtubeVideos) : s.youtubeUrl ? JSON.stringify([{
+						name: "기본 영상",
+						url: s.youtubeUrl
+					}]) : ""
 				].map((val) => {
 					let str = (val === void 0 || val === null ? "" : val).toString();
 					str = str.normalize("NFC");
 					if (str.startsWith("=") || str.startsWith("-") || str.startsWith("+")) str = "'" + str;
+					else if (/^\d{1,2}\/\d{1,2}$/.test(str)) str = "'" + str;
 					return `"${str.replace(/"/g, "\"\"").replace(/\n/g, " ")}"`;
 				}).join(",");
 			});
 			const dateStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-			const defaultFilename = `hymnal_data_${mode || "all"}_${dateStr}.csv`;
+			const defaultFilename = `찬양데이터_${exportName}_${dateStr}.csv`;
 			const { filePath } = await dialog.showSaveDialog(win, {
 				title: "데이터 내보내기",
 				defaultPath: path.join(app.getPath("downloads"), defaultFilename),
@@ -22274,10 +22378,23 @@ function registerHymnalIPC(win) {
 					number: parseInt(cleanStr(parts[1]), 10) || 0,
 					title: cleanStr(parts[2]),
 					code: cleanStr(parts[3]),
-					meter: cleanStr(parts[4]),
+					meter: sanitizeMeter(cleanStr(parts[4])),
 					lyrics: cleanStr(parts[5]),
 					category: cleanStr(parts[6]),
-					filename: cleanStr(parts[7])
+					filename: cleanStr(parts[7]),
+					youtubeVideos: (() => {
+						const raw = cleanStr(parts[8]);
+						try {
+							if (raw.startsWith("[")) return JSON.parse(raw);
+							if (raw) return [{
+								name: "기본 영상",
+								url: raw
+							}];
+							return [];
+						} catch (e) {
+							return [];
+						}
+					})()
 				};
 			});
 			const currentContent = await fs$1.readFile(dbPath, "utf8");
