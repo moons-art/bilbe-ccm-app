@@ -19,6 +19,7 @@ export default defineConfig({
                 'tesseract.js',
                 'googleapis',
                 'google-auth-library',
+                'xlsx',
                 'electron',
                 'path',
                 'fs',

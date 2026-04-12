@@ -9,6 +9,8 @@ export type CopyMode = 'default' | 'niv+krv' | 'all';
 interface BibleContextType {
   versions: BibleVersion[];
   selectedVersionIds: string[];
+  lineHeight: number;
+  setLineHeight: (val: number) => void;
   copyMode: CopyMode;
   showVersionInCopy: boolean;
   addVersion: (version: BibleVersion) => void;
@@ -23,8 +25,19 @@ interface BibleContextType {
 const BibleContext = createContext<BibleContextType | undefined>(undefined);
 
 export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [versions, setVersions] = useState<BibleVersion[]>([]);
-  const [selectedVersionIds, setSelectedVersionIds] = useState<string[]>([]);
+  // 고정된 개역개정 초기 객체 (로딩 전에도 목록에 보이게 함)
+  const DEFAULT_KRV: BibleVersion = {
+    id: 'built-in-krv',
+    name: '개역개정',
+    verses: [],
+    isBuiltIn: true,
+    isSystem: true,
+    metadata: { uploadedAt: Date.now(), fileType: 'txt' }
+  };
+
+  const [versions, setVersions] = useState<BibleVersion[]>([DEFAULT_KRV]);
+  const [selectedVersionIds, setSelectedVersionIds] = useState<string[]>(['built-in-krv']);
+  const [lineHeight, setLineHeight] = useState<number>(1.6);
   const [copyMode, setCopyMode] = useState<CopyMode>('default');
   const [showVersionInCopy, setShowVersionInCopy] = useState<boolean>(true);
 
@@ -35,6 +48,13 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const saved = localStorage.getItem('bible-versions');
       const savedShowVersion = localStorage.getItem('bible-show-version-copy');
       
+      const savedLineHeight = localStorage.getItem('bible-line-height');
+      
+      if (savedLineHeight) {
+        const val = parseFloat(savedLineHeight);
+        setLineHeight(val < 1.3 ? 1.3 : val);
+      }
+
       if (savedShowVersion) {
         setShowVersionInCopy(savedShowVersion === 'true');
       }
@@ -47,11 +67,27 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       }
 
-      // 1. Ensure KRV exists (Built-in)
-      const hasKrv = loaded.some(v => v.name === '개역개정');
-      if (!hasKrv) {
+      // 1. Ensure KRV exists and is hydrated (Built-in System Version)
+      // Use the stable 'built-in-krv' ID
+      let krvEntry = loaded.find(v => v.name === '개역개정' || v.id === 'built-in-krv');
+      
+      if (!krvEntry) {
+        krvEntry = { ...DEFAULT_KRV };
+        loaded.unshift(krvEntry);
+      } else {
+        // 개역개정을 목록의 맨 앞으로 이동 (강제 우선순위)
+        loaded = [krvEntry, ...loaded.filter(v => v.id !== krvEntry!.id)];
+      }
+      
+      krvEntry.isSystem = true;
+      krvEntry.isBuiltIn = true;
+      krvEntry.id = 'built-in-krv'; // ID 강제 고정
+
+      if (!krvEntry.verses || krvEntry.verses.length === 0) {
+        console.log("[Bible] System KRV verses missing. Forcing load from /data/krv.txt...");
         try {
-          const response = await fetch('./data/krv.txt');
+          // fetch('/data/krv.txt') -> 가끔 base 경로 문제가 있을 수 있어 './data/krv.txt'도 고려
+          const response = await fetch('/data/krv.txt');
           if (response.ok) {
             const buffer = await response.arrayBuffer();
             let content;
@@ -64,28 +100,57 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
             const krvVersion = await BibleParser.parseTxt('개역개정', content);
             krvVersion.isBuiltIn = true;
-            loaded.push(krvVersion);
+            krvVersion.isSystem = true; 
+            krvVersion.id = 'built-in-krv';
+            
+            console.log(`[Bible] 개역개정 파싱 완료: ${krvVersion.verses.length}개 구절 로드됨.`);
+
+            if (krvVersion.verses.length === 0) {
+              console.error("[Bible] 개역개정 파싱 결과가 0개입니다! 파일 내용을 확인하세요.");
+            }
+            
+            // Update in loaded array
+            const idx = loaded.findIndex(v => v.id === 'built-in-krv');
+            if (idx !== -1) {
+              loaded[idx] = krvVersion;
+            } else {
+              loaded.unshift(krvVersion);
+            }
+            
+            console.log(`[Bible] KRV built-in loaded/updated. Total: ${krvVersion.verses.length}`);
+          } else {
+            console.error(`[Bible] Failed to fetch krv.txt: ${response.status}. 데이터 경로를 확인하세요.`);
           }
         } catch (e) {
-          console.error("Failed to load default KRV bible", e);
+          console.error("[Bible] Failed to load default KRV bible from /data/krv.txt", e);
         }
       }
 
-      // 2. Hydrate Built-in versions (they are saved without verses to save space)
+      // 2. Hydrate other Built-in versions if any
       const hydratedVersions = await Promise.all(loaded.map(async (v) => {
         if (v.isBuiltIn && (!v.verses || v.verses.length === 0)) {
+          console.log(`[Bible] Hydrating built-in version: ${v.name}`);
           try {
-            const fileName = v.name === '개역개정' ? 'krv.txt' : null; // Add more built-in mappings if needed
+            const fileName = v.name === '개역개정' ? 'krv.txt' : null;
             if (fileName) {
-              const response = await fetch(`./data/${fileName}`);
+              const response = await fetch(`/data/${fileName}`);
               if (response.ok) {
-                const content = await response.text();
+                const buffer = await response.arrayBuffer();
+                let content;
+                try {
+                  const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+                  content = utf8Decoder.decode(buffer);
+                } catch {
+                  const eucKrDecoder = new TextDecoder('euc-kr');
+                  content = eucKrDecoder.decode(buffer);
+                }
                 const fullVersion = await BibleParser.parseTxt(v.name, content);
+                console.log(`[Bible] Hydrated ${v.name} successfully.`);
                 return { ...v, verses: fullVersion.verses };
               }
             }
           } catch (e) {
-            console.error(`Failed to hydrate built-in version: ${v.name}`, e);
+            console.error(`[Bible] Failed to hydrate built-in version: ${v.name}`, e);
           }
         }
         return v;
@@ -94,10 +159,9 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setVersions(hydratedVersions);
       hydratedVersions.forEach(v => searchService.indexVersion(v));
 
-      // Auto-select first version if none selected
-      if (hydratedVersions.length > 0) {
-        setSelectedVersionIds([hydratedVersions[0].id]);
-      }
+      // Force select KRV on first load to guarantee visibility
+      console.log("[Bible] Initial Selection logic running...");
+      setSelectedVersionIds(['built-in-krv']);
     };
 
     init();
@@ -123,6 +187,10 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('bible-show-version-copy', String(showVersionInCopy));
   }, [showVersionInCopy]);
 
+  useEffect(() => {
+    localStorage.setItem('bible-line-height', String(lineHeight));
+  }, [lineHeight]);
+
   const addVersion = (version: BibleVersion) => {
     setVersions(prev => {
       const newVersions = [...prev.filter(v => v.name !== version.name), version];
@@ -134,7 +202,10 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const removeVersion = (id: string) => {
     setVersions(prev => {
       const target = prev.find(v => v.id === id);
-      if (target?.isBuiltIn) return prev; // Protect built-in
+      if (target?.isBuiltIn || target?.isSystem || target?.name === '개역개정') {
+        console.warn("[Bible] Cannot remove system/built-in version.");
+        return prev; // 시스템/빌트인 버전 보호
+      }
       return prev.filter(v => v.id !== id);
     });
     setSelectedVersionIds(prev => prev.filter(vid => vid !== id));
@@ -172,7 +243,9 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       clearAllVersions, 
       toggleVersion,
       setCopyMode,
-      setShowVersionInCopy
+      setShowVersionInCopy,
+      lineHeight,
+      setLineHeight: (val: number) => setLineHeight(val < 1.3 ? 1.3 : val)
     }}>
       {children}
     </BibleContext.Provider>

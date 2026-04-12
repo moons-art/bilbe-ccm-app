@@ -10,14 +10,16 @@ interface BibleViewerProps {
   currentChapter: number;
   highlightVerse?: number;
   fontSize?: number;
+  lineHeight: number;
 }
 
 const VerseItem = React.memo<{
   verse: Verse;
   isSelected: boolean;
   fontSize: number;
+  lineHeight: number;
   onClick: (v: number) => void;
-}>(({ verse, isSelected, fontSize, onClick }) => {
+}>(({ verse, isSelected, fontSize, lineHeight, onClick }) => {
   return (
     <div
       onClick={() => onClick(verse.verse)}
@@ -26,11 +28,11 @@ const VerseItem = React.memo<{
         ${isSelected ? 'bg-red-50/50 border-l-red-500' : 'hover:bg-slate-50 border-l-transparent'}
       `}
     >
-      <div className="flex gap-3 items-start px-2 py-1">
+      <div className="flex gap-3 items-start px-2">
         <span className={`text-[11px] font-bold mt-1.5 w-6 shrink-0 text-center ${isSelected ? 'text-red-600' : 'text-slate-400'}`}>
           {verse.verse}
         </span>
-        <div className="flex-1 min-w-0 py-1">
+        <div className="flex-1 min-w-0">
           {verse.title && (
             <div className="mb-1 text-red-700 font-extrabold text-[0.85em] tracking-tight">
               &lt;{verse.title}&gt;
@@ -38,7 +40,7 @@ const VerseItem = React.memo<{
           )}
           <p 
             className={`leading-relaxed whitespace-pre-wrap ${isSelected ? 'text-slate-900 font-medium' : 'text-slate-700'}`}
-            style={{ fontSize: `${fontSize}px` }}
+            style={{ fontSize: `${fontSize}px`, lineHeight: lineHeight }}
           >
             {verse.content}
           </p>
@@ -53,7 +55,8 @@ export const BibleViewer: React.FC<BibleViewerProps> = ({
   currentBookId, 
   currentChapter = 1, 
   highlightVerse,
-  fontSize = 16
+  fontSize = 16,
+  lineHeight
 }) => {
   const scrollContainerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [selectedVerses, setSelectedVerses] = useState<Set<number>>(new Set());
@@ -197,6 +200,7 @@ export const BibleViewer: React.FC<BibleViewerProps> = ({
                   verse={v}
                   isSelected={selectedVerses.has(v.verse)}
                   fontSize={fontSize}
+                  lineHeight={lineHeight}
                   onClick={toggleVerse}
                 />
               ))

@@ -40,9 +40,26 @@ electron.contextBridge.exposeInMainWorld("ipcRenderer", {
 		exportCSV: (args) => electron.ipcRenderer.invoke("hymnal:export-csv", args),
 		importCSV: () => electron.ipcRenderer.invoke("hymnal:import-csv"),
 		openExternal: (url) => electron.ipcRenderer.send("hymnal:open-external", url),
+		generateSlides: (args) => electron.ipcRenderer.invoke("hymnal:generate-slides", args),
+		onSlidesProgress: (callback) => {
+			const listener = (_, data) => callback(data);
+			electron.ipcRenderer.on("hymnal:slides-progress", listener);
+			return () => electron.ipcRenderer.removeListener("hymnal:slides-progress", listener);
+		},
+		generatePDF: (args) => electron.ipcRenderer.invoke("hymnal:generate-pdf", args),
+		onPDFProgress: (callback) => {
+			const listener = (_, data) => callback(data);
+			electron.ipcRenderer.on("hymnal:pdf-progress", listener);
+			return () => electron.ipcRenderer.removeListener("hymnal:pdf-progress", listener);
+		},
 		getSavedContis: () => electron.ipcRenderer.invoke("hymnal:get-saved-contis"),
 		saveConti: (conti) => electron.ipcRenderer.invoke("hymnal:save-conti", conti),
-		deleteSavedConti: (id) => electron.ipcRenderer.invoke("hymnal:delete-saved-conti", id)
+		deleteSavedConti: (id) => electron.ipcRenderer.invoke("hymnal:delete-saved-conti", id),
+		resizeWindow: (width, height) => electron.ipcRenderer.send("hymnal:resize-window", {
+			width,
+			height
+		}),
+		writeClipboard: (text) => electron.ipcRenderer.send("hymnal:write-clipboard", text)
 	}
 });
 //#endregion

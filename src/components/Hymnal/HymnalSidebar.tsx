@@ -17,10 +17,12 @@ export const HymnalSidebar: React.FC = () => {
     albums, 
     activeAlbumId, 
     setActiveAlbumId, 
-    isSyncing, 
-    syncAlbum, 
-    exportCSV, 
+    isSyncing,
+    setIsSyncing,
+    syncAlbum,
+    exportCSV,
     importCSV,
+    processingProgress,
     setShowBuilder,
     setShowAlbumModal,
     setEditingAlbum
@@ -62,9 +64,9 @@ export const HymnalSidebar: React.FC = () => {
 
           {albums.map((album) => (
             <div key={album.id} className="group relative">
-              <button 
+              <div 
                 onClick={() => setActiveAlbumId(album.id)}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
+                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer ${
                   activeAlbumId === album.id 
                     ? 'bg-red-500 text-white shadow-lg shadow-red-100' 
                     : 'hover:bg-slate-50 text-slate-600'
@@ -84,7 +86,7 @@ export const HymnalSidebar: React.FC = () => {
                     <Settings className="w-3.5 h-3.5" />
                   </button>
                 )}
-              </button>
+              </div>
             </div>
           ))}
         </div>
@@ -110,6 +112,11 @@ export const HymnalSidebar: React.FC = () => {
                    <FolderOpen className="w-3 h-3 text-red-500" />
                    <p className="text-[11px] font-black text-red-600">[{activeAlbum.name}]</p>
                 </div>
+                {isSyncing && processingProgress && (
+                  <p className="text-[10px] font-black text-red-500 animate-pulse mt-1">
+                    {Math.round((processingProgress.processed / (processingProgress.total || 1)) * 100)}% 진행 중
+                  </p>
+                )}
                 <p className="text-[9px] text-slate-400 font-bold leading-tight pt-1">
                   (구글 드라이브의 목록이<br/>앱의 목록으로 대체됩니다)
                 </p>

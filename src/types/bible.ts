@@ -12,6 +12,7 @@ export interface BibleVersion {
   name: string;
   verses: Verse[];
   isBuiltIn?: boolean;
+  isSystem?: boolean;
   metadata?: {
     uploadedAt: number;
     fileType: 'pdf' | 'txt';

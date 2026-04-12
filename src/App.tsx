@@ -11,7 +11,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { searchService, type SearchRange } from './services/searchService';
 import { BIBLE_BOOKS, BIBLE_LIST } from './constants/bibleMeta';
 
+import { MobilePdfLayout } from './components/Hymnal/MobilePdfLayout';
+
 const MainApp: React.FC = () => {
+  // PDF 인쇄 모드 확인
+  const params = new URLSearchParams(window.location.search);
+  const isPrintMode = params.get('mode') === 'print-pdf';
+
+  if (isPrintMode) {
+    return <MobilePdfLayout />;
+  }
   const { 
     versions, 
     selectedVersionIds, 
@@ -23,7 +32,9 @@ const MainApp: React.FC = () => {
     copyMode,
     setCopyMode,
     showVersionInCopy,
-    setShowVersionInCopy 
+    setShowVersionInCopy,
+    lineHeight,
+    setLineHeight 
   } = useBible();
   const { isEditorOpen } = useHymnal();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -54,7 +65,8 @@ const MainApp: React.FC = () => {
       const isNavPattern = /^([1-3]?[가-힣a-zA-Z]+)\s*(\d+)(?:[:：.\s](\d+))?$/.test(trimmed);
       
       if (!isNavPattern && trimmed.length >= 2) {
-        const results = searchService.search(trimmed, selectedVersionIds, 'word', searchRange, currentBookId);
+        const normalizedQuery = trimmed.normalize('NFC');
+        const results = searchService.search(normalizedQuery, selectedVersionIds, 'word', searchRange, currentBookId);
         setSearchResults(results);
       } else if (!isNavPattern) {
         setSearchResults([]);
@@ -117,7 +129,7 @@ const MainApp: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-background text-slate-200 overflow-hidden font-sans">
+    <div className="flex h-screen bg-background text-slate-200 overflow-y-auto overflow-x-hidden font-sans custom-scrollbar">
       {/* ... (sidebar content skipped for brevity in replacement) */}
       {/* Sidebar - Dynamically switch between Bible and Hymnal controls */}
       <AnimatePresence>
@@ -131,8 +143,9 @@ const MainApp: React.FC = () => {
             <div className="p-6 h-full flex flex-col w-[18vw] min-w-[220px] max-w-[280px]">
               {/* Header */}
               <div className="flex items-center justify-between mb-8">
-                <h1 className="text-xl font-bold bg-gradient-to-r from-red-600 to-red-400 bg-clip-text text-transparent">
-                  {currentTab === 'bible' ? 'CEUM BIBLE Tool' : 'CEUM HYMNAL Tool'}
+                <h1 className="font-bold bg-gradient-to-r from-red-600 to-red-400 bg-clip-text text-transparent flex items-baseline gap-1.5">
+                  <span className="text-[10px] uppercase tracking-tighter opacity-80">ceum</span>
+                  <span className="text-xl">성경CCM</span>
                 </h1>
                 {currentTab === 'bible' ? <BookOpen className="w-5 h-5 text-red-500" /> : <Music className="w-5 h-5 text-red-500" />}
               </div>
@@ -365,8 +378,17 @@ const MainApp: React.FC = () => {
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <div className="text-sm font-bold text-slate-800">찬송/CCM 관리자</div>
-                <div className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-black uppercase">Alpha</div>
+                <div className="flex items-center gap-2">
+                   <div className="text-sm font-bold text-slate-800">찬송/CCM 관리자</div>
+                   <button 
+                     onClick={() => setShowSettings(true)}
+                     className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl transition-all active:scale-95 group shadow-sm border border-red-100"
+                     title="도움말 및 설치 가이드"
+                   >
+                     <span className="text-[10px] font-black">사용법</span>
+                     <Settings className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-500" />
+                   </button>
+                </div>
               </div>
             )}
           </div>
@@ -481,19 +503,23 @@ const MainApp: React.FC = () => {
           )}
 
           <div className="ml-auto flex items-center gap-4">
-            <div className="flex -space-x-2">
-              {versions.filter(v => selectedVersionIds.includes(v.id)).map(v => (
-                <div key={v.id} className="px-2 h-8 rounded-full bg-red-100 border-2 border-white flex items-center justify-center text-[10px] font-bold text-red-600 min-w-[32px]" title={v.name}>
-                  {v.name.substring(0, 2)}
+            {currentTab === 'bible' && (
+              <>
+                <div className="flex -space-x-2">
+                  {versions.filter(v => selectedVersionIds.includes(v.id)).map(v => (
+                    <div key={v.id} className="px-2 h-8 rounded-full bg-red-100 border-2 border-white flex items-center justify-center text-[10px] font-bold text-red-600 min-w-[32px]" title={v.name}>
+                      {v.name.substring(0, 2)}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <button 
-              onClick={() => setShowSettings(true)}
-              className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
+                <button 
+                  onClick={() => setShowSettings(true)}
+                  className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+              </>
+            )}
           </div>
         </header>
 
@@ -541,6 +567,7 @@ const MainApp: React.FC = () => {
                   currentChapter={currentChapter}
                   highlightVerse={currentVerse}
                   fontSize={fontSize}
+                  lineHeight={lineHeight}
                 />
               )
             ) : (
@@ -604,10 +631,17 @@ const MainApp: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white border border-slate-100 rounded-2xl shadow-2xl p-8"
+              className="relative w-full max-w-2xl bg-white border border-slate-100 rounded-2xl shadow-2xl p-8 max-h-[90vh] overflow-hidden flex flex-col"
             >
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-xl font-bold text-slate-800">환경 설정</h2>
+              <div className="flex items-center justify-between mb-8 shrink-0">
+                <div className="flex items-center gap-3">
+                   <div className="p-2 bg-red-50 rounded-xl">
+                      <Settings className="w-6 h-6 text-red-600" />
+                   </div>
+                   <h2 className="text-xl font-bold text-slate-800">
+                     {currentTab === 'bible' ? '성경 환경 설정' : '[CEUM] 통합 도구 가이드'}
+                   </h2>
+                </div>
                 <button 
                   onClick={() => setShowSettings(false)}
                   className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
@@ -616,62 +650,151 @@ const MainApp: React.FC = () => {
                 </button>
               </div>
               
-              <div className="space-y-8">
-                <div>
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="font-bold text-slate-700">본문 글꼴 크기</span>
-                    <span className="text-red-600 font-black px-3 py-1 bg-red-50 rounded-lg">{fontSize}px</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="12" 
-                    max="32" 
-                    value={fontSize}
-                    onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
-                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-500"
-                  />
-                  <div className="flex justify-between mt-2 text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                    <span>12px</span>
-                    <span>32px</span>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                  <div className="flex items-center gap-2 mb-3">
-                    <BookOpen className="w-4 h-4 text-slate-400" />
-                    <h3 className="text-sm font-bold text-slate-800">성경 번역본 지원 형식 안내</h3>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <p className="text-[11px] font-bold text-slate-700">1. 표준 형식 (매 줄에 정보 포함)</p>
-                      <ul className="text-[10px] text-slate-500 space-y-0.5 pl-3">
-                        <li>• 예: <code className="bg-white px-1 rounded border">창세기 1:1</code>, <code className="bg-white px-1 rounded border">창 1:1</code>, <code className="bg-white px-1 rounded border">Genesis 1:1</code>, <code className="bg-white px-1 rounded border">Gen 1:1</code></li>
-                      </ul>
+              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-8">
+                {currentTab === 'bible' ? (
+                  <>
+                    <div>
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="font-bold text-slate-700">본문 글꼴 크기</span>
+                        <span className="text-red-600 font-black px-3 py-1 bg-red-50 rounded-lg">{fontSize}px</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="12" 
+                        max="32" 
+                        value={fontSize}
+                        onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
+                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-500"
+                      />
+                      <div className="flex justify-between mt-2 text-[10px] font-black text-slate-400 uppercase tracking-tighter">
+                        <span>12px</span>
+                        <span>32px</span>
+                      </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <p className="text-[11px] font-bold text-slate-700">2. 헤더 구분 형식 (권/장이 상단에 위치)</p>
-                      <ul className="text-[10px] text-slate-500 space-y-0.5 pl-3">
-                        <li>• 헤더: <code className="bg-white px-1 rounded border">[Genesis 1]</code>, <code className="bg-white px-1 rounded border">창세기 1</code>, <code className="bg-white px-1 rounded border">Genesis 1</code></li>
-                        <li>• 본문: <code className="bg-white px-1 rounded border">1.Text...</code> 또는 <code className="bg-white px-1 rounded border">1 본문...</code></li>
-                      </ul>
+                    <div>
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="font-bold text-slate-700">본문 줄 간격</span>
+                        <span className="text-red-600 font-black px-3 py-1 bg-red-50 rounded-lg">{lineHeight.toFixed(1)}</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="1.3" 
+                        max="3" 
+                        step="0.1"
+                        value={lineHeight}
+                        onChange={(e) => setLineHeight(parseFloat(e.target.value))}
+                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-500"
+                      />
+                      <div className="flex justify-between mt-2 text-[10px] font-black text-slate-400 uppercase tracking-tighter">
+                        <span>가장 촘촘히 (1.3)</span>
+                        <span>넓게 (3.0)</span>
+                      </div>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-200">
-                      <p className="text-[11px] font-bold text-red-600 leading-tight mb-2">
-                        * 번역본 텍스트를 제미나이ai를 사용해 아래 형식으로 변환 후 사용하세요.
-                      </p>
-                      <p className="text-[10px] text-slate-400 leading-tight">
-                        * 권장 사양: UTF-8 (BOM 없음), LF (\n), .txt 파일
-                      </p>
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <div className="flex items-center gap-2 mb-3">
+                        <BookOpen className="w-4 h-4 text-slate-400" />
+                        <h3 className="text-sm font-bold text-slate-800">성경 번역본 지원 형식 안내</h3>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <p className="text-[11px] font-bold text-slate-700">1. 표준 형식 (매 줄에 정보 포함)</p>
+                          <ul className="text-[10px] text-slate-500 space-y-0.5 pl-3">
+                            <li>• 예: <code className="bg-white px-1 rounded border">창세기 1:1</code>, <code className="bg-white px-1 rounded border">창 1:1</code>, <code className="bg-white px-1 rounded border">Genesis 1:1</code>, <code className="bg-white px-1 rounded border">Gen 1:1</code></li>
+                          </ul>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-[11px] font-bold text-slate-700">2. 헤더 구분 형식 (권/장이 상단에 위치)</p>
+                          <ul className="text-[10px] text-slate-500 space-y-0.5 pl-3">
+                            <li>• 헤더: <code className="bg-white px-1 rounded border">[Genesis 1]</code>, <code className="bg-white px-1 rounded border">창세기 1</code>, <code className="bg-white px-1 rounded border">Genesis 1</code></li>
+                            <li>• 본문: <code className="bg-white px-1 rounded border">1.Text...</code> 또는 <code className="bg-white px-1 rounded border">1 본문...</code></li>
+                          </ul>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-200">
+                          <p className="text-[11px] font-bold text-red-600 leading-tight mb-2">
+                            * 번역본 텍스트를 제미나이ai를 사용해 아래 형식으로 변환 후 사용하세요.
+                          </p>
+                          <p className="text-[10px] text-slate-400 leading-tight">
+                            * 권장 사양: UTF-8 (BOM 없음), LF (\n), .txt 파일
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* Hymnal/Unified Guide Content */
+                  <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div className="p-5 bg-red-50 rounded-2xl border border-red-100">
+                      <p className="text-xs font-bold text-red-800 leading-relaxed">목사님의 사역이 이 도구를 통해 더욱 풍성해지길 기도합니다. 🕊️🙏</p>
+                    </div>
+
+                    <div className="space-y-6">
+                       <section>
+                          <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 mb-3">
+                             <div className="w-1.5 h-4 bg-red-500 rounded-full" />
+                             맥(macOS) 보안 설정 안내
+                          </h3>
+                          <div className="bg-slate-50 p-4 rounded-xl text-[11px] text-slate-600 leading-relaxed border border-slate-100">
+                             <p>앱 실행 시 "확인되지 않은 개발자" 경고가 뜨면:</p>
+                             <ul className="mt-2 space-y-1.5 list-disc pl-4 font-bold">
+                                <li><strong>시스템 설정</strong> &gt; <strong>개인정보 보호 및 보안</strong>으로 이동</li>
+                                <li>아래쪽 <strong>확인 없이 열기 (Open Anyway)</strong> 버튼 클릭</li>
+                                <li>암호 입력 후 최종 실행 승인</li>
+                             </ul>
+                          </div>
+                       </section>
+
+                       <section>
+                          <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 mb-3">
+                             <div className="w-1.5 h-4 bg-red-500 rounded-full" />
+                             찬양 악보 데이터 넣는 법
+                          </h3>
+                          <div className="bg-slate-50 p-4 rounded-xl text-[11px] text-slate-600 leading-relaxed border border-slate-100 space-y-3">
+                             <div>
+                                <p className="font-black text-slate-800 mb-1">1. 데이터 빌더 실행</p>
+                                <p>왼쪽 하단 <strong>[데이터 빌더 실행]</strong> 클릭 후 앨범과 PC 폴더 연결</p>
+                             </div>
+                             <div>
+                                <p className="font-black text-slate-800 mb-1">2. 빌드 방식</p>
+                                <p>• <strong>전체다시 빌드</strong>: 폴더 내 모든 곡을 새로 삽입</p>
+                                <p>• <strong>새곡추가 빌드</strong>: 추가된 곡만 인식 (추천)</p>
+                             </div>
+                          </div>
+                       </section>
+
+                       <section>
+                          <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 mb-3">
+                             <div className="w-1.5 h-4 bg-red-500 rounded-full" />
+                             드라이브 동기화 (모바일 연동)
+                          </h3>
+                          <div className="bg-white p-4 rounded-xl text-[11px] text-slate-600 leading-relaxed border-2 border-red-50 space-y-2">
+                             <p>패널 왼쪽 하단 <strong>[드라이브 동기화]</strong> 버튼을 누르면 구글 드라이브에 자동으로 업로드됩니다.</p>
+                             <p className="text-[10px] text-red-500 font-bold">* 곡 추가나 정보 수정 후에는 항상 동기화를 눌러주세요.</p>
+                          </div>
+                       </section>
+
+                       <section>
+                          <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 mb-3">
+                             <div className="w-1.5 h-4 bg-red-500 rounded-full" />
+                             정보 일괄 수정 (엑셀 활용)
+                          </h3>
+                          <div className="bg-slate-50 p-4 rounded-xl text-[11px] text-slate-600 leading-relaxed border border-slate-100">
+                             <p><strong>[CSV 내보내기]</strong>로 받은 엑셀에서 수정 후, <strong>[CSV 가져오기]</strong>로 다시 올리면 한꺼번에 반영됩니다.</p>
+                          </div>
+                       </section>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
 
-              <div className="mt-12 pt-6 border-t border-slate-100 text-center">
-                <p className="text-[10px] font-black text-slate-400 tracking-widest uppercase mb-1">CEUM BIBLE Tool V1.0.0</p>
+              <div className="mt-8 pt-6 border-t border-slate-100 text-center shrink-0">
+                <p className="text-[10px] font-black text-slate-400 tracking-widest uppercase mb-1">
+                  {currentTab === 'bible' ? 'CEUM BIBLE Tool V1.0.0' : 'CEUM CCM Tool V1.0.0'}
+                </p>
                 <p className="text-[9px] text-slate-300 font-bold tracking-tight">© 2026 CEUM ministry. All rights reserved.</p>
               </div>
             </motion.div>

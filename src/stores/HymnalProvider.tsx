@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { HymnalSong } from '../types/hymnal';
 import { hymnalService } from '../services/hymnalService';
+import { hymnalApi } from '../api/hymnalApi';
 
 export interface Album {
   id: string;
@@ -136,7 +137,7 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [editingAlbum, setEditingAlbum] = useState<Album | null>(null);
 
   const reloadSettings = async () => {
-    const settings = await (window as any).ipcRenderer.hymnal.getSettings();
+    const settings = await hymnalApi.getSettings();
     if (settings && settings.albums) {
       setAlbums(settings.albums);
     }
@@ -145,19 +146,19 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const fetchSongs = async () => {
     setIsLoading(true);
     try {
-      const data = await (window as any).ipcRenderer.hymnal.getSongs();
+      const data = await hymnalApi.getSongs();
       setSongs(data);
       hymnalService.setSongs(data);
       setFilteredSongs(data);
     } catch (e) {
-      console.error("Failed to load music data via IPC", e);
+      console.error("Failed to load music data via API", e);
     } finally {
       setIsLoading(false);
     }
   };
 
   const fetchSavedContis = async () => {
-    const data = await (window as any).ipcRenderer.hymnal.getSavedContis();
+    const data = await hymnalApi.getSavedContis();
     setSavedContis(data);
   };
 
@@ -222,7 +223,7 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Album Methods
   const addAlbum = async (name: string) => {
-    const result = await (window as any).ipcRenderer.hymnal.addAlbum({ name, path: '' });
+    const result = await hymnalApi.addAlbum({ name, path: '' });
     if (result.success) {
       await reloadSettings();
       setActiveAlbumId(result.album.id);
@@ -230,12 +231,12 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const updateAlbum = async (album: Album) => {
-    const result = await (window as any).ipcRenderer.hymnal.updateAlbum(album);
+    const result = await hymnalApi.updateAlbum(album);
     if (result.success) await reloadSettings();
   };
 
   const deleteAlbum = async (id: string) => {
-    const result = await (window as any).ipcRenderer.hymnal.deleteAlbum(id);
+    const result = await hymnalApi.deleteAlbum(id);
     if (result.success) {
       await reloadSettings();
       setActiveAlbumId('all');
@@ -244,7 +245,7 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const updateAlbumPath = async (id: string) => {
-    const path = await (window as any).ipcRenderer.hymnal.selectFolder();
+    const path = await hymnalApi.selectFolder();
     if (path) {
       const album = albums.find(a => a.id === id);
       if (album) {
@@ -271,7 +272,7 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       showContiNumbers
     };
 
-    const result = await (window as any).ipcRenderer.hymnal.saveConti(contiData);
+    const result = await hymnalApi.saveConti(contiData);
     if (result.success) {
       setCurrentContiId(id);
       if (name) setContiTitle(name);
@@ -304,7 +305,7 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const deleteSavedConti = async (id: string) => {
     if (!confirm('정말로 이 저장된 콘티를 삭제하시겠습니까?')) return;
     
-    const result = await (window as any).ipcRenderer.hymnal.deleteSavedConti(id);
+    const result = await hymnalApi.deleteSavedConti(id);
     if (result.success) {
       if (currentContiId === id) setCurrentContiId(null);
       await fetchSavedContis();
@@ -381,18 +382,23 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Sync & Build
   const syncAlbum = async (albumId: string) => {
     setIsSyncing(true);
+    const stopListening = hymnalApi.onProgress((data: any) => {
+      setProcessingProgress(data);
+    });
     try {
-      const result = await (window as any).ipcRenderer.hymnal.syncGDrive(albumId);
+      const result = await hymnalApi.syncGDrive(albumId);
       if (result.success) {
         const target = albums.find(a => a.id === albumId);
         alert(`[${target?.name || '앨범'}] 동기화 완료!\n업로드: ${result.uploaded}, 건너뜀: ${result.skipped}`);
         await fetchSongs();
       } else if (result.message === 'Need Auth') {
-        const url = await (window as any).ipcRenderer.hymnal.getAuthUrl();
-        (window as any).ipcRenderer.hymnal.openExternal(url);
+        const url = await hymnalApi.getAuthUrl();
+        hymnalApi.openExternal(url);
         alert('구글 인증이 필요합니다. 웹 브라우저에서 인증 후 다시 시도해 주세요.');
       }
     } finally {
+      stopListening();
+      setProcessingProgress(null);
       setIsSyncing(false);
     }
   };
@@ -404,12 +410,12 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return;
     }
 
-    const stopListening = (window as any).ipcRenderer.hymnal.onProgress((data: any) => {
+    const stopListening = hymnalApi.onProgress((data: any) => {
       setProcessingProgress(data);
     });
 
     try {
-      const result = await (window as any).ipcRenderer.hymnal.processImages({
+      const result = await hymnalApi.processImages({
         albumId,
         sourcePath: target.path,
         isIncremental
@@ -424,12 +430,12 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // CSV
   const exportCSV = async (albumId: string) => {
-    const result = await (window as any).ipcRenderer.hymnal.exportCSV({ mode: albumId });
+    const result = await hymnalApi.exportCSV({ mode: albumId });
     if (result.success) alert('CSV 내보내기 완료');
   };
 
   const importCSV = async () => {
-    const result = await (window as any).ipcRenderer.hymnal.importCSV();
+    const result = await hymnalApi.importCSV();
     if (result.success) {
       alert(`${result.count}곡 데이터 반영 완료`);
       await fetchSongs();

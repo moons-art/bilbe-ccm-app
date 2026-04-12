@@ -7,7 +7,10 @@ export class BibleParser {
    */
   static async parseTxt(name: string, content: string): Promise<BibleVersion> {
     const verses: Verse[] = [];
-    const lines = content.split(/\r?\n/);
+    const normalizedContent = content.normalize('NFC');
+    const lines = normalizedContent.split(/\r?\n/);
+    console.log(`[Parser] ${name} 로딩 시작 - 총 ${lines.length}줄 감지됨. (NFC 정규화 완료)`);
+    console.log(`[Parser] Parsing ${name} - Total lines: ${lines.length}`);
     
     // Final Strict Patterns
     // P1: Book (1-3 + Korean OR English) + Chapter + Verse
@@ -37,7 +40,8 @@ export class BibleParser {
       // Try Header Pattern [Genesis 1] or Genesis 1
       const headerMatch = trimmed.match(headerPattern);
       if (headerMatch) {
-        let bookName = headerMatch[1]?.trim();
+        const rawBookName = headerMatch[1]?.trim();
+        let bookName = rawBookName?.normalize('NFC');
         if (bookName?.endsWith('.')) bookName = bookName.slice(0, -1);
         
         const bookId = BIBLE_BOOKS[bookName] || BIBLE_BOOKS[bookName.charAt(0).toUpperCase() + bookName.slice(1).toLowerCase()] || BIBLE_BOOKS[bookName.toUpperCase()];
@@ -51,7 +55,8 @@ export class BibleParser {
 
       const matchWith = trimmed.match(patternWithBook);
       if (matchWith) {
-        let bookName = matchWith[1]?.trim();
+        const rawBookName = matchWith[1]?.trim();
+        let bookName = rawBookName?.normalize('NFC');
         chapter = matchWith[2];
         verse = matchWith[3];
         title = matchWith[4];

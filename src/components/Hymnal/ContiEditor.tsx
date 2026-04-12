@@ -1,6 +1,7 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo, memo } from 'react';
 import { useHymnal } from '../../stores/HymnalProvider';
 import type { ContiItem } from '../../stores/HymnalProvider';
+import { hymnalApi } from '../../api/hymnalApi';
 import { 
   Trash2, 
   RotateCcw,
@@ -25,10 +26,209 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { SavedContisModal } from './SavedContisModal';
+import { LeaderViewer } from './LeaderViewer';
 
 const MARGIN_PX = 55; // 안전 여백
 
-// Internal SavedContisModal removed and replaced by shared component
+// --- Optimized Local Slider Component ---
+const SmoothSlider = memo(({ 
+  value, 
+  onChange, 
+  min, 
+  max, 
+  step = 1,
+  label,
+  accentColor = "accent-indigo-500",
+  unit = ""
+}: {
+  value: number;
+  onChange: (val: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  label?: string;
+  accentColor?: string;
+  unit?: string;
+}) => {
+  const [localVal, setLocalVal] = useState(value);
+  useEffect(() => { setLocalVal(value); }, [value]);
+
+  return (
+    <div className="flex items-center gap-2">
+      {label && <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">{label}</span>}
+      <input 
+        type="range" min={min} max={max} step={step} 
+        value={localVal} 
+        onMouseDown={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          setLocalVal(v);
+          // 실시간 반영을 위해 Store 업데이트를 호출하되, 
+          // DraggableContiItem이 memo되어 있어 부하가 적음
+          onChange(v);
+        }} 
+        className={`w-14 sm:w-16 ${accentColor} h-1 cursor-pointer`} 
+      />
+      <span className={`text-[10px] font-black font-mono w-6 text-center ${accentColor.replace('accent-', 'text-').replace('-500', '-300')}`}>
+        {localVal}{unit}
+      </span>
+    </div>
+  );
+});
+
+// --- Memoized Individual Item Component ---
+const DraggableContiItem = memo(({ 
+  item, 
+  song, 
+  isSelected, 
+  canvasWidth, 
+  canvasHeight, 
+  isPreviewMode, 
+  showContiNumbers,
+  index,
+  canvasRef,
+  onSelect,
+  onUpdate,
+  onRemove,
+  onCropEdit
+}: {
+  item: ContiItem;
+  song: any;
+  isSelected: boolean;
+  canvasWidth: number;
+  canvasHeight: number;
+  isPreviewMode: boolean;
+  showContiNumbers: boolean;
+  index: number;
+  canvasRef: React.RefObject<HTMLDivElement>;
+  onSelect: (id: string) => void;
+  onUpdate: (id: string, updates: Partial<ContiItem>) => void;
+  onRemove: (id: string) => void;
+  onCropEdit: (id: string) => void;
+}) => {
+  const [imageRatio, setImageRatio] = useState(1);
+  const crop = item.crop || { top: 0, bottom: 0, left: 0, right: 0 };
+  const visibleWidthFactor = (100 - crop.left - crop.right) / 100;
+  const visibleHeightFactor = (100 - crop.top - crop.bottom) / 100;
+
+  const [localMemo, setLocalMemo] = useState(item.memo || '');
+  useEffect(() => { setLocalMemo(item.memo || ''); }, [item.memo]);
+
+  return (
+    <motion.div
+      drag={!isPreviewMode} dragMomentum={false} dragElastic={0} dragConstraints={canvasRef}
+      initial={false}
+      onDragStart={() => onSelect(item.id)}
+      onDragEnd={(e) => {
+         const canvas = canvasRef.current; if (!canvas) return;
+         const rect = canvas.getBoundingClientRect();
+         const el = (e.target as HTMLElement).closest('.conti-item-container');
+         if (!el) return;
+         const elRect = el.getBoundingClientRect();
+         let xPercent = Number((((elRect.left - rect.left) / rect.width) * 100).toFixed(2));
+         let yPercent = Number((((elRect.top - rect.top) / rect.height) * 100).toFixed(2));
+         onUpdate(item.id, { x: xPercent, y: yPercent });
+      }}
+      className={`absolute cursor-grab active:cursor-grabbing conti-item-container ${isSelected ? 'z-[100]' : 'z-10'}`}
+      animate={{
+        x: (item.x * canvasWidth) / 100,
+        y: (item.y * canvasHeight) / 100,
+      }}
+      transition={{ type: "tween", ease: "linear", duration: 0 }}
+      style={{
+        left: 0, top: 0,
+        width: `${item.width}%`,
+      }}
+      onClick={(e) => { e.stopPropagation(); onSelect(item.id); }}
+    >
+       {isSelected && !isPreviewMode && (
+         <div 
+           className="absolute -top-11 left-0 flex items-center gap-2.5 bg-slate-900/95 backdrop-blur-md text-white px-2.5 py-1.5 rounded-xl shadow-2xl z-[110] no-print border border-white/10 animate-in fade-in slide-in-from-bottom-1 duration-200"
+           onMouseDown={(e) => e.stopPropagation()}
+           onClick={(e) => e.stopPropagation()}
+         >
+            <button onClick={() => onCropEdit(item.id)} className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 transition-all rounded-lg shadow-lg shadow-indigo-500/20 group whitespace-nowrap">
+              <Scissors className="w-3 h-3 text-white/90 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] font-black tracking-tight">자르기</span>
+            </button>
+            
+            <div className="w-px h-3 bg-white/20 mx-0.5" />
+            
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => onUpdate(item.id, { isMemoOpen: !item.isMemoOpen })} 
+                className={`flex items-center gap-1.5 px-2.5 py-1 transition-all rounded-lg border border-white/5 ${item.isMemoOpen ? 'bg-amber-500 text-white shadow-amber-500/20' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
+              >
+                <StickyNote className="w-3 h-3" />
+                <span className="text-[10px] font-black tracking-tight">메모</span>
+              </button>
+
+              {item.isMemoOpen && (
+                <SmoothSlider 
+                  label="Font" 
+                  min={10} max={60} 
+                  value={item.memoFontSize || 12} 
+                  onChange={(v) => onUpdate(item.id, { memoFontSize: v })}
+                  accentColor="accent-amber-400"
+                />
+              )}
+            </div>
+
+            <div className="w-px h-3 bg-white/20 mx-0.5" />
+            
+            <div className="flex items-center gap-2">
+                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">크기</span>
+                <div className="flex items-center gap-1 bg-white/5 p-0.5 rounded-lg border border-white/5">
+                   <button onMouseDown={(e) => e.stopPropagation()} onClick={() => onUpdate(item.id, { width: Math.round(Math.max(10, item.width - 2)) })} className="p-1 hover:bg-white/10 rounded-md text-slate-400 hover:text-white transition-all">
+                     <Minus className="w-3 h-3" />
+                   </button>
+                   <span className="text-[9px] font-black font-mono text-indigo-300 w-7 text-center">{Math.round(item.width)}%</span>
+                   <button onMouseDown={(e) => e.stopPropagation()} onClick={() => onUpdate(item.id, { width: Math.round(Math.min(100, item.width + 2)) })} className="p-1 hover:bg-white/10 rounded-md text-slate-400 hover:text-white transition-all">
+                     <Plus className="w-3 h-3" />
+                   </button>
+                </div>
+            </div>
+            
+            <div className="w-px h-3 bg-white/20 mx-0.5" />
+            
+            <button onClick={() => onRemove(item.id)} className="p-1 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+         </div>
+       )}
+
+       <div className="relative w-full overflow-hidden rounded-sm ring-1 ring-slate-200 bg-white" style={{ aspectRatio: `${imageRatio * (visibleWidthFactor / visibleHeightFactor)}` }}>
+          <img 
+            src={hymnalApi.resolveImagePath(song?.filePath || song?.filename || '')} 
+            className="absolute block max-w-none" 
+            onLoad={(e) => { setImageRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight); }} 
+            style={{ width: `${100 / visibleWidthFactor}%`, left: `-${(crop.left / visibleWidthFactor)}%`, top: `-${(crop.top / visibleHeightFactor)}%` }} 
+            draggable={false} 
+          />
+       </div>
+
+       {showContiNumbers && (
+         <div className={`absolute -top-3 -left-3 w-7 h-7 bg-slate-900 border-2 border-white text-white rounded-full items-center justify-center text-[11px] font-black shadow-xl z-[105] ${!isPreviewMode ? 'flex' : 'hidden print:flex'} print:shadow-none print:bg-black`}>
+            {index + 1}
+         </div>
+       )}
+
+       {isSelected && !isPreviewMode && <div className="absolute -inset-1 border-2 border-indigo-500 rounded-lg pointer-events-none z-[101]" />}
+       
+       {item.isMemoOpen && (
+          <div className="mt-2.5 no-print relative group/memo" onMouseDown={(e) => e.stopPropagation()}>
+            <textarea 
+              value={localMemo} 
+              onChange={(e) => setLocalMemo(e.target.value)} 
+              onBlur={() => onUpdate(item.id, { memo: localMemo })}
+              placeholder="찬양 멘트..." 
+              className="w-full bg-white/95 border-2 border-slate-100 rounded-xl p-2.5 font-bold text-slate-700 shadow-lg focus:border-indigo-200 focus:outline-none transition-all resize-none custom-scrollbar" 
+              style={{ fontSize: `${item.memoFontSize || 12}px`, height: 'auto', minHeight: '50px' }} 
+            />
+          </div>
+       )}
+       <div className="hidden print:block text-center mt-2.5 font-black text-black leading-tight" style={{ fontSize: `${item.memoFontSize || 12}px` }}>{item.memo}</div>
+    </motion.div>
+  );
+});
 
 // --- Pro Crop Overlay Component ---
 const CropEditor: React.FC<{
@@ -65,7 +265,7 @@ const CropEditor: React.FC<{
 
         <div ref={containerRef} className="relative w-[80vw] h-[70vh] flex items-center justify-center overflow-hidden">
             <div className="relative transition-transform duration-200 ease-out" style={{ width: `${zoom}%` }}>
-               <img src={`hymnal-resource://${song?.filePath || song?.filename}`} className="w-full h-auto block select-none pointer-events-none" alt="preview" />
+               <img src={hymnalApi.resolveImagePath(song?.filePath || song?.filename || '')} className="w-full h-auto block select-none pointer-events-none" alt="preview" />
                
                {/* Dimmed Area */}
                <div className="absolute inset-0 pointer-events-none">
@@ -147,7 +347,7 @@ const CropEditor: React.FC<{
   );
 };
 
-// --- Sub-component for individual page content to keep it clean ---
+// --- Sub-component for individual page content ---
 const PageContent: React.FC<{ 
   pNum: number, 
   canvasWidth: number, 
@@ -162,14 +362,12 @@ const PageContent: React.FC<{
     updateContiItem, removeFromConti, showContiNumbers
   } = useHymnal();
   
-  const [imageRatios, setImageRatios] = useState<Record<string, number>>({});
   const canvasRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div ref={canvasRef} onMouseDown={() => setActiveItemId(null)} className={`bg-white relative page-break-after overflow-hidden transition-shadow duration-500 ${isPreviewMode ? '' : 'shadow-2xl'}`} style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
+    <div ref={canvasRef} onMouseDown={() => setActiveItemId(null)} className={`bg-white relative page-break-after overflow-hidden ${isPreviewMode ? '' : 'shadow-2xl'}`} style={{ width: `${canvasWidth}px`, height: `${canvasHeight}px` }}>
       {!isPreviewMode && <div className="absolute pointer-events-none no-print border border-slate-200 border-dashed" style={{ left: MARGIN_PX, top: MARGIN_PX, right: MARGIN_PX, bottom: MARGIN_PX }} />}
       
-      {/* Title Area - Shared across pages - pointer-events-none added to allow clicks to pass through */}
       <div className="absolute left-0 right-0 z-20 text-center flex flex-col items-center gap-2 group/title no-print pointer-events-none" style={{ top: '30px' }}>
         <div 
           className="w-full font-black text-slate-900 bg-transparent text-center py-4 border-none focus:outline-none transition-all" 
@@ -184,149 +382,24 @@ const PageContent: React.FC<{
       </div>
 
       <AnimatePresence>
-        {contiItems.filter(item => item.isVisible && item.page === pNum).map((item) => {
-          const song = songs.find(s => s.id === item.songId);
-          const isSelected = activeItemId === item.id;
-          
-          const crop = item.crop || { top: 0, bottom: 0, left: 0, right: 0 };
-          const visibleWidthFactor = (100 - crop.left - crop.right) / 100;
-          const visibleHeightFactor = (100 - crop.top - crop.bottom) / 100;
-          
-          return (
-            <motion.div
-              key={item.id} drag={!isPreviewMode} dragMomentum={false} dragElastic={0} dragConstraints={canvasRef}
-              initial={false}
-              layout
-              onDragStart={() => setActiveItemId(item.id)}
-              onDragEnd={(e, info) => {
-                 const canvas = canvasRef.current; if (!canvas) return;
-                 const rect = canvas.getBoundingClientRect();
-                 const el = (e.target as HTMLElement).closest('.conti-item-container');
-                 if (!el) return;
-                 const elRect = el.getBoundingClientRect();
-                 
-                 let xPercent = Number((((elRect.left - rect.left) / rect.width) * 100).toFixed(2));
-                 let yPercent = Number((((elRect.top - rect.top) / rect.height) * 100).toFixed(2));
-                 updateContiItem(item.id, { x: xPercent, y: yPercent });
-              }}
-              className={`absolute cursor-grab active:cursor-grabbing conti-item-container ${isSelected ? 'z-[100]' : 'z-10'}`}
-              animate={{
-                x: (item.x * canvasWidth) / 100,
-                y: (item.y * canvasHeight) / 100,
-              }}
-              style={{
-                left: 0, top: 0,
-                width: `${item.width}%`,
-              }}
-              onClick={() => setActiveItemId(item.id)}
-            >
-               {isSelected && !isPreviewMode && (
-                 <div 
-                   className="absolute -top-14 left-0 flex items-center gap-4 bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-2xl z-[110] no-print border border-white/10 animate-in fade-in slide-in-from-bottom-2 duration-200"
-                   onMouseDown={(e) => e.stopPropagation()}
-                   onClick={(e) => e.stopPropagation()}
-                 >
-                    <button onClick={(e) => { e.stopPropagation(); setCropEditingId(item.id); }} className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 transition-all rounded-xl shadow-lg shadow-indigo-500/30 group whitespace-nowrap">
-                      <Scissors className="w-3.5 h-3.5 text-white/90 group-hover:scale-110 transition-transform" />
-                      <span className="text-[11px] font-black tracking-tight">악보 자르기</span>
-                    </button>
-                    
-                    <div className="w-px h-4 bg-white/20" />
-                    
-                    <div className="flex items-center gap-4">
-                      <button onClick={(e) => { e.stopPropagation(); updateContiItem(item.id, { isMemoOpen: !item.isMemoOpen }); }} className={`flex items-center gap-2 px-3 py-1.5 transition-all rounded-xl shadow-lg border border-white/10 ${item.isMemoOpen ? 'bg-amber-500 text-white shadow-amber-500/30' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}>
-                        <StickyNote className="w-3.5 h-3.5" />
-                        <span className="text-[11px] font-black tracking-tight">메모 {item.isMemoOpen ? 'ON' : 'OFF'}</span>
-                      </button>
-
-                      {item.isMemoOpen && (
-                        <div className="flex items-center gap-3 bg-white/5 px-2 py-1 rounded-lg border border-white/5">
-                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Font</span>
-                           <input 
-                             type="range" min="10" max="60" step="1" 
-                             value={item.memoFontSize || 12} 
-                             onMouseDown={(e) => e.stopPropagation()}
-                             onChange={(e) => {
-                               e.stopPropagation();
-                               updateContiItem(item.id, { memoFontSize: Number(e.target.value) });
-                             }} 
-                             className="w-16 accent-amber-400 h-1 cursor-pointer" 
-                           />
-                           <span className="text-[10px] font-black font-mono text-amber-300 w-6 text-center">{item.memoFontSize || 12}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="w-px h-4 bg-white/20" />
-                    
-                    <div className="flex items-center gap-3">
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">크기</span>
-                        <div className="flex items-center gap-1.5 bg-white/5 p-1 rounded-xl border border-white/5">
-                           <button 
-                             onMouseDown={(e) => e.stopPropagation()}
-                             onClick={(e) => {
-                                e.stopPropagation();
-                                const nextVal = Math.max(20, item.width - 2);
-                                updateContiItem(item.id, { width: nextVal });
-                             }}
-                             className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-all"
-                           >
-                             <Minus className="w-3.5 h-3.5" />
-                           </button>
-                           
-                           <span className="text-[10px] font-black font-mono text-indigo-300 w-8 text-center">{Math.round(item.width)}%</span>
-                           
-                           <button 
-                             onMouseDown={(e) => e.stopPropagation()}
-                             onClick={(e) => {
-                                e.stopPropagation();
-                                // 여백 기반 최댓값 계산
-                                const mX = MARGIN_PX/canvasWidth; const mY = MARGIN_PX/canvasHeight;
-                                const xF = item.x/100; const yF = item.y/100;
-                                const mR = (1-xF-mX)*100;
-                                const c = item.crop || {top:0,bottom:0,left:0,right:0};
-                                const vH = (100-c.top-c.bottom)/100; const vW = (100-c.left-c.right)/100;
-                                const cR = vH/vW || 1; const aH = (1-yF-mY)*canvasHeight;
-                                const mB = (aH/cR/canvasWidth)*100;
-                                const dynamicMax = Math.max(20, Math.min(mR, mB || 100));
-
-                                const nextVal = Math.min(dynamicMax, item.width + 2);
-                                updateContiItem(item.id, { width: nextVal });
-                             }}
-                             className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-all"
-                           >
-                             <Plus className="w-3.5 h-3.5" />
-                           </button>
-                        </div>
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); removeFromConti(item.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"><Trash2 className="w-4 h-4" /></button>
-                 </div>
-               )}
-
-               <div className="relative w-full overflow-hidden rounded-sm ring-1 ring-slate-200 bg-white" style={{ aspectRatio: `${(imageRatios[item.id] || 1) * (visibleWidthFactor / visibleHeightFactor)}` }}>
-                  <img src={`hymnal-resource://${song?.filePath || song?.filename}`} className="absolute block max-w-none" onLoad={(e) => {
-                    const r = e.currentTarget.naturalWidth / e.currentTarget.naturalHeight;
-                    if (imageRatios[item.id] !== r) setImageRatios(prev => ({ ...prev, [item.id]: r }));
-                  }} style={{ width: `${100 / visibleWidthFactor}%`, left: `-${(crop.left / visibleWidthFactor)}%`, top: `-${(crop.top / visibleHeightFactor)}%` }} draggable={false} />
-               </div>
-
-               {showContiNumbers && (
-                 <div className={`absolute -top-3 -left-3 w-8 h-8 bg-slate-900 border-2 border-white text-white rounded-full items-center justify-center text-sm font-black shadow-xl z-[105] ${!isPreviewMode ? 'flex' : 'hidden print:flex'} print:shadow-none print:bg-black`}>
-                    {contiItems.findIndex(i => i.id === item.id) + 1}
-                 </div>
-               )}
-
-               {isSelected && !isPreviewMode && <div className="absolute -inset-1 border-2 border-indigo-500 rounded-lg pointer-events-none z-[101]" />}
-               
-               {item.isMemoOpen && (
-                  <div className="mt-3 no-print relative group/memo" onMouseDown={(e) => e.stopPropagation()}>
-                    <textarea value={item.memo} onChange={(e) => updateContiItem(item.id, { memo: e.target.value })} placeholder="찬양 멘트..." className="w-full bg-white/95 border-2 border-slate-100 rounded-xl p-3 font-bold text-slate-700 shadow-lg focus:border-indigo-200 focus:outline-none transition-all resize-none custom-scrollbar" style={{ fontSize: `${item.memoFontSize || 12}px`, height: 'auto', minHeight: '60px' }} />
-                  </div>
-               )}
-               <div className="hidden print:block text-center mt-3 font-black text-black leading-tight" style={{ fontSize: `${item.memoFontSize || 12}px` }}>{item.memo}</div>
-            </motion.div>
-          );
-        })}
+        {contiItems.filter(item => item.isVisible && item.page === pNum).map((item, index) => (
+          <DraggableContiItem 
+            key={item.id}
+            item={item}
+            song={songs.find(s => s.id === item.songId)}
+            isSelected={activeItemId === item.id}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            isPreviewMode={isPreviewMode}
+            showContiNumbers={showContiNumbers}
+            index={contiItems.findIndex(i => i.id === item.id)}
+            canvasRef={canvasRef}
+            onSelect={setActiveItemId}
+            onUpdate={updateContiItem}
+            onRemove={removeFromConti}
+            onCropEdit={setCropEditingId}
+          />
+        ))}
       </AnimatePresence>
     </div>
   );
@@ -345,6 +418,10 @@ export const ContiEditor: React.FC = () => {
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [cropEditingId, setCropEditingId] = useState<string | null>(null);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [isLeaderViewerOpen, setIsLeaderViewerOpen] = useState(false);
+
+  const [localTitle, setLocalTitle] = useState(contiTitle);
+  useEffect(() => { setLocalTitle(contiTitle); }, [contiTitle]);
 
   const isLandscape = orientation === 'landscape';
   const canvasWidth = isLandscape ? (paperSize === 'A4' ? 1123 : 1587) : (paperSize === 'A4' ? 794 : 1123);
@@ -357,20 +434,26 @@ export const ContiEditor: React.FC = () => {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`fixed inset-0 z-[9999] flex flex-col overflow-hidden select-none transition-colors duration-500 ${isPreviewMode ? 'bg-slate-50' : 'bg-slate-950'}`}>
         <AnimatePresence>
           {cropEditingId && editingItem && editingSong && (
-            <CropEditor item={editingItem} song={editingSong} onCancel={() => setCropEditingId(null)} onSave={(newCrop, newWidth) => { updateContiItem(cropEditingId, { crop: newCrop, width: newWidth }); setCropEditingId(null); }} />
+            <CropEditor key="crop-editor" item={editingItem} song={editingSong} onCancel={() => setCropEditingId(null)} onSave={(newCrop, newWidth) => { updateContiItem(cropEditingId, { crop: newCrop, width: newWidth }); setCropEditingId(null); }} />
           )}
           <SavedContisModal 
+            key="saved-contis-modal"
             isOpen={isLibraryOpen} 
             onClose={() => setIsLibraryOpen(false)} 
             savedContis={savedContis} 
             onLoad={loadSavedConti} 
             onDelete={deleteSavedConti} 
           />
+          {isLeaderViewerOpen && (
+            <LeaderViewer 
+              key="leader-viewer" 
+              onClose={() => setIsLeaderViewerOpen(false)} 
+              onOpenLibrary={() => setIsLibraryOpen(true)}
+            />
+          )}
         </AnimatePresence>
 
-        {/* Top Header - Restructured to 2 Layers */}
         <div className={`bg-white border-b border-slate-200 z-50 no-print transition-all duration-300 shadow-sm ${isPreviewMode ? '-translate-y-full absolute w-full' : 'relative'}`}>
-          {/* Layer 1: Title & Main Actions */}
           <div className="h-16 px-6 flex items-center justify-between border-b border-slate-100/50">
             <div className="flex items-center gap-5">
               <button onClick={() => setIsEditorOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors"><ChevronLeft className="w-6 h-6" /></button>
@@ -381,180 +464,80 @@ export const ContiEditor: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Title Control */}
               <div className="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 group transition-all focus-within:ring-2 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/50">
                 <input 
-                  type="text" value={contiTitle} onChange={(e) => setContiTitle(e.target.value)} 
+                  type="text" value={localTitle} 
+                  onChange={(e) => setLocalTitle(e.target.value)}
+                  onBlur={() => setContiTitle(localTitle)}
+                  onKeyDown={(e) => e.key === 'Enter' && setContiTitle(localTitle)}
                   placeholder="콘티 제목 입력..." className="bg-transparent font-bold text-sm text-slate-900 focus:outline-none w-48"
                 />
                 <div className="w-px h-4 bg-slate-200" />
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">T-Size</span>
-                <input type="range" min="20" max="100" value={contiTitleFontSize} onChange={(e) => setContiTitleFontSize(Number(e.target.value))} className="w-20 accent-indigo-500" />
+                <SmoothSlider 
+                  label="T-Size"
+                  min={20} max={100}
+                  value={contiTitleFontSize}
+                  onChange={setContiTitleFontSize}
+                />
               </div>
 
               <div className="w-px h-6 bg-slate-200 mx-1" />
 
-              <button 
-                onClick={() => setIsLibraryOpen(true)}
-                className="px-4 py-2 bg-white hover:bg-slate-50 rounded-lg text-xs font-black text-slate-600 flex items-center gap-2 transition-all border border-slate-200 shadow-sm active:scale-95"
-              >
-                <Library className="w-4 h-4 text-slate-400" />
-                저장소
+              <button onClick={() => setIsLibraryOpen(true)} className="px-4 py-2 bg-white hover:bg-slate-50 rounded-lg text-xs font-black text-slate-600 flex items-center gap-2 transition-all border border-slate-200 shadow-sm active:scale-95">
+                <Library className="w-4 h-4 text-slate-400" /> 저장소
               </button>
 
-              <button 
-                onClick={() => saveCurrentConti()}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-xs font-black text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-100 active:scale-95"
-              >
-                <Save className="w-4 h-4" />
-                저장하기
+              <button onClick={() => saveCurrentConti()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-xs font-black text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-100 active:scale-95">
+                <Save className="w-4 h-4" /> 저장하기
               </button>
             </div>
           </div>
 
-          {/* Layer 2: Detailed Setting Tools */}
           <div className="h-14 px-6 flex items-center justify-between bg-slate-50/30">
             <div className="flex items-center gap-2">
-              <button 
-                onClick={() => setShowContiNumbers(!showContiNumbers)} 
-                className={`px-4 py-2 rounded-lg text-[11px] font-black flex items-center gap-2 transition-all border ${showContiNumbers ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}
-              >
-                <Hash className="w-3.5 h-3.5" />
-                순번 표시 {showContiNumbers ? 'ON' : 'OFF'}
+              <button onClick={() => setShowContiNumbers(!showContiNumbers)} className={`px-4 py-2 rounded-lg text-[11px] font-black flex items-center gap-2 transition-all border ${showContiNumbers ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>
+                <Hash className="w-3.5 h-3.5" /> 순번 표시 {showContiNumbers ? 'ON' : 'OFF'}
               </button>
-
               <div className="w-px h-4 bg-slate-200 mx-1" />
-
               <div className="flex bg-white p-1 rounded-lg border border-slate-200">
-                <button 
-                  onClick={() => setOrientation('portrait')} 
-                  className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${!isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  세로
-                </button>
-                <button 
-                  onClick={() => setOrientation('landscape')} 
-                  className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  가로
-                </button>
+                <button onClick={() => setOrientation('portrait')} className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${!isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>세로</button>
+                <button onClick={() => setOrientation('landscape')} className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>가로</button>
               </div>
-
               <div className="flex bg-white p-1 rounded-lg border border-slate-200">
-                <button 
-                  onClick={() => setPaperSize('A4')} 
-                  className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${paperSize === 'A4' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  A4
-                </button>
-                <button 
-                  onClick={() => setPaperSize('A3')} 
-                  className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${paperSize === 'A3' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  A3
-                </button>
+                <button onClick={() => setPaperSize('A4')} className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${paperSize === 'A4' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>A4</button>
+                <button onClick={() => setPaperSize('A3')} className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${paperSize === 'A3' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>A3</button>
               </div>
             </div>
-
             <div className="flex items-center gap-2">
-              <button onClick={() => setIsPreviewMode(true)} className="px-4 py-2 bg-slate-800 hover:bg-slate-900 rounded-lg text-[11px] font-black text-white shadow-lg flex items-center gap-2 transition-all active:scale-95">
-                <Search className="w-3.5 h-3.5" />
-                미리보기
-              </button>
-
-              <button onClick={clearConti} className="p-2 bg-white text-slate-400 hover:text-red-500 rounded-lg border border-slate-200 transition-all flex items-center gap-2 text-[11px] font-black px-4" title="전체 비우기">
-                <RotateCcw className="w-4 h-4" />
-                비우기
-              </button>
-
+              <button onClick={() => setIsLeaderViewerOpen(true)} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 rounded-lg text-[11px] font-black text-white shadow-lg flex items-center gap-2 transition-all active:scale-95"><Layout className="w-3.5 h-3.5" /> 인도자용 뷰어</button>
+              <button onClick={() => setIsPreviewMode(true)} className="px-4 py-2 bg-slate-800 hover:bg-slate-900 rounded-lg text-[11px] font-black text-white shadow-lg flex items-center gap-2 transition-all active:scale-95"><Search className="w-3.5 h-3.5" /> 미리보기</button>
+              <button onClick={clearConti} className="p-2 bg-white text-slate-400 hover:text-red-500 rounded-lg border border-slate-200 transition-all flex items-center gap-2 text-[11px] font-black px-4"><RotateCcw className="w-4 h-4" /> 비우기</button>
               <div className="w-px h-6 bg-slate-200 mx-1" />
-
               <button onClick={() => window.print()} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-black shadow-lg transition-all active:scale-95">인쇄하기</button>
-              
-              <button 
-                onClick={() => {
-                  if (contiItems.length > 0 && !confirm('변경사항이 저장되지 않을 수 있습니다. 정말 취소하시겠습니까?')) return;
-                  setIsEditorOpen(false);
-                }}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[11px] font-black flex items-center gap-2 border border-slate-200 transition-all"
-              >
-                <DoorOpen className="w-3.5 h-3.5" />
-                취소하기
-              </button>
+              <button onClick={() => { if (contiItems.length > 0 && !confirm('변경사항이 저장되지 않을 수 있습니다.')) return; setIsEditorOpen(false); }} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[11px] font-black flex items-center gap-2 border border-slate-200 transition-all"><DoorOpen className="w-3.5 h-3.5" /> 취소</button>
             </div>
           </div>
         </div>
 
-        {/* Floating Pagination Sidebar / Top Header for Songs */}
-        <Reorder.Group 
-          axis="x" 
-          values={contiItems} 
-          onReorder={reorderContiItems}
-          className={`bg-white border-b border-slate-100 px-6 py-4 flex items-center gap-4 overflow-x-auto custom-scrollbar no-print transition-all duration-300 ${isPreviewMode ? 'opacity-0 h-0 p-0 pointer-events-none' : 'opacity-100 h-auto'}`}
-        >
-           {contiItems
-             .filter(item => !item.isVisible || item.page === 1)
-             .map((item, idx) => {
-               const song = songs.find(s => s.id === item.songId);
-               const isAssignedToThisPage = item.isVisible && item.page === 1;
-               
-               return (
-                 <Reorder.Item 
-                   key={item.id} 
-                   value={item}
-                   layout
-                   transition={{ type: "spring", stiffness: 700, damping: 40, mass: 0.8 }}
-                   className={`flex items-center gap-1 pl-2 pr-5 py-2.5 rounded-2xl border-2 shrink-0 select-none ${isAssignedToThisPage ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : (item.isVisible ? 'opacity-30 border-slate-200 pointer-events-none' : 'bg-slate-50 border-slate-100 text-slate-500')}`}
-                 >
-                    <div className="p-1 cursor-grab active:cursor-grabbing text-slate-400/50 hover:text-white transition-colors group">
-                       <GripVertical className="w-5 h-5 group-active:scale-110" />
-                    </div>
-
-                    <button onClick={() => toggleContiItemVisibility(item.id)} className="flex items-center gap-3">
-                      <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${isAssignedToThisPage ? 'bg-white/20 text-white' : 'bg-white text-slate-300'}`}>{idx + 1}</span>
-                      <span className="text-sm font-bold truncate max-w-[150px]">{song?.title}</span>
-                      {isAssignedToThisPage && <CheckCircle2 className="w-4 h-4 fill-white text-indigo-600" />}
-                    </button>
-                 </Reorder.Item>
-               );
+        <Reorder.Group axis="x" values={contiItems} onReorder={reorderContiItems} className={`bg-white border-b border-slate-100 px-6 py-4 flex items-center gap-4 overflow-x-auto custom-scrollbar no-print transition-all duration-300 ${isPreviewMode ? 'opacity-0 h-0 p-0 pointer-events-none' : 'opacity-100 h-auto'}`}>
+           {contiItems.filter(item => !item.isVisible || item.page === 1).map((item, idx) => {
+                const song = songs.find(s => s.id === item.songId);
+                const isAssignedToThisPage = item.isVisible && item.page === 1;
+                return (
+                  <Reorder.Item key={item.id} value={item} layout transition={{ type: "spring", stiffness: 700, damping: 40, mass: 0.8 }} className={`flex items-center gap-1 pl-2 pr-5 py-2.5 rounded-2xl border-2 shrink-0 select-none ${isAssignedToThisPage ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : (item.isVisible ? 'opacity-30 border-slate-200 pointer-events-none' : 'bg-slate-50 border-slate-100 text-slate-500')}`}>
+                     <div className="p-1 cursor-grab active:cursor-grabbing text-slate-400/50 hover:text-white transition-colors group"><GripVertical className="w-5 h-5 group-active:scale-110" /></div>
+                     <button onClick={() => toggleContiItemVisibility(item.id)} className="flex items-center gap-3">
+                       <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${isAssignedToThisPage ? 'bg-white/20 text-white' : 'bg-white text-slate-300'}`}>{idx + 1}</span>
+                       <span className="text-sm font-bold truncate max-w-[150px]">{song?.title}</span>
+                       {isAssignedToThisPage && <CheckCircle2 className="w-4 h-4 fill-white text-indigo-600" />}
+                     </button>
+                  </Reorder.Item>
+                );
            })}
         </Reorder.Group>
 
-        {/* Floating Preview Controller */}
-        <AnimatePresence>
-          {isPreviewMode && (
-            <motion.div 
-              initial={{ y: -50, opacity: 0 }} 
-              animate={{ y: 20, opacity: 1 }} 
-              exit={{ y: -50, opacity: 0 }}
-              className="fixed top-0 left-1/2 -translate-x-1/2 z-[100] bg-white/80 backdrop-blur-xl border border-slate-200 px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-6 no-print"
-            >
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-xs font-black text-slate-800 uppercase tracking-tighter">인쇄 미리보기 모드</span>
-              </div>
-              <div className="w-px h-4 bg-slate-200" />
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setIsPreviewMode(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-black transition-colors"
-                >
-                  편집으로 돌아가기
-                </button>
-                <button 
-                  onClick={() => window.print()}
-                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black shadow-lg flex items-center gap-2"
-                >
-                  지금 인쇄하기
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <div className={`flex-1 overflow-auto p-24 flex flex-col items-center custom-scrollbar transition-all print:p-0 print:m-0 print:overflow-visible print:bg-white ${isPreviewMode ? 'bg-slate-50' : 'bg-slate-100'}`}>
             <div className="relative flex flex-col items-center gap-20 print:gap-0 print:static">
-               {/* --- Single-Page Canvas Rendering --- */}
                <div className="flex flex-col items-center transition-opacity duration-300 relative z-10 print:visible print:relative print:pointer-events-auto print:z-10 print:h-auto print:block">
                  <PageContent 
                    pNum={1} 

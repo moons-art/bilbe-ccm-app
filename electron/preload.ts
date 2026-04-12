@@ -46,9 +46,25 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
     importCSV: () => ipcRenderer.invoke('hymnal:import-csv'),
     openExternal: (url: string) => ipcRenderer.send('hymnal:open-external', url),
     
+    // Google Slides
+    generateSlides: (args: any) => ipcRenderer.invoke('hymnal:generate-slides', args),
+    onSlidesProgress: (callback: any) => {
+      const listener = (_: any, data: any) => callback(data);
+      ipcRenderer.on('hymnal:slides-progress', listener);
+      return () => ipcRenderer.removeListener('hymnal:slides-progress', listener);
+    },
+    generatePDF: (args: any) => ipcRenderer.invoke('hymnal:generate-pdf', args),
+    onPDFProgress: (callback: any) => {
+      const listener = (_: any, data: any) => callback(data);
+      ipcRenderer.on('hymnal:pdf-progress', listener);
+      return () => ipcRenderer.removeListener('hymnal:pdf-progress', listener);
+    },
+    
     // Conti Storage
     getSavedContis: () => ipcRenderer.invoke('hymnal:get-saved-contis'),
     saveConti: (conti: any) => ipcRenderer.invoke('hymnal:save-conti', conti),
-    deleteSavedConti: (id: string) => ipcRenderer.invoke('hymnal:delete-saved-conti', id)
+    deleteSavedConti: (id: string) => ipcRenderer.invoke('hymnal:delete-saved-conti', id),
+    resizeWindow: (width: number, height: number) => ipcRenderer.send('hymnal:resize-window', { width, height }),
+    writeClipboard: (text: string) => ipcRenderer.send('hymnal:write-clipboard', text)
   }
 });

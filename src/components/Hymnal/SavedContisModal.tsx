@@ -61,40 +61,47 @@ export const SavedContisModal: React.FC<SavedContisModalProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3">
-              {savedContis.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).map((conti) => (
-                <div 
-                  key={conti.id} 
-                  className="group relative bg-white border border-slate-100 p-5 rounded-2xl hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer flex items-center justify-between"
-                  onClick={() => { onLoad(conti.id); onClose(); }}
-                >
-                  <div className="flex items-center gap-5">
-                    <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center border border-slate-100 group-hover:bg-indigo-50 group-hover:border-indigo-100 transition-colors">
-                      <Calendar className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-slate-800 text-sm group-hover:text-indigo-600 transition-colors">{conti.title}</h3>
-                      <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 uppercase">
-                          <Layout className="w-3 h-3" /> {conti.items?.length || 0}곡 배치됨
-                        </span>
-                        <div className="w-1 h-1 bg-slate-200 rounded-full" />
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">
-                          {new Date(conti.updatedAt).toLocaleDateString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit' })}
-                        </span>
+              {savedContis.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).map((conti, idx) => {
+                const colors = ['bg-blue-500', 'bg-indigo-500', 'bg-purple-500', 'bg-pink-500', 'bg-rose-500', 'bg-amber-500', 'bg-emerald-500', 'bg-sky-500'];
+                const colorClass = colors[conti.title.length % colors.length];
+                const lightColorClass = colorClass.replace('-500', '-50');
+                const textColorClass = colorClass.replace('bg-', 'text-');
+
+                return (
+                  <div 
+                    key={conti.id} 
+                    className={`group relative bg-white border border-slate-100 px-5 py-3.5 rounded-2xl hover:border-indigo-200 hover:shadow-lg hover:shadow-indigo-500/5 transition-all cursor-pointer flex items-center justify-between border-l-4 ${colorClass.replace('bg-', 'border-l-')}`}
+                    onClick={() => { onLoad(conti.id); onClose(); }}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-9 h-9 ${lightColorClass} rounded-lg flex items-center justify-center border border-transparent group-hover:border-white transition-all shadow-sm`}>
+                        <Calendar className={`w-4 h-4 ${textColorClass}`} />
+                      </div>
+                      <div>
+                        <h3 className="font-black text-slate-800 text-sm group-hover:text-indigo-600 transition-colors">{conti.title}</h3>
+                        <div className="flex items-center gap-2.5 mt-1">
+                          <span className="text-[9px] font-bold text-slate-400 flex items-center gap-1 uppercase">
+                            <Layout className="w-2.5 h-2.5" /> {conti.items?.length || 0}곡
+                          </span>
+                          <div className="w-0.5 h-0.5 bg-slate-200 rounded-full" />
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">
+                            {new Date(conti.updatedAt).toLocaleDateString('ko-KR', { month:'2-digit', day:'2-digit' })}
+                          </span>
+                        </div>
                       </div>
                     </div>
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onDelete(conti.id); }}
+                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      <ChevronRight className="w-4 h-4 text-slate-200 group-hover:text-indigo-400 group-hover:translate-x-0.5 transition-all" />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onDelete(conti.id); }}
-                      className="p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                    <ChevronRight className="w-5 h-5 text-slate-200 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

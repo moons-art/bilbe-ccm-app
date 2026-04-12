@@ -24,39 +24,64 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SavedContisModal } from './SavedContisModal';
+import { hymnalApi } from '../../api/hymnalApi';
 
 export const HymnalModule: React.FC = () => {
-  const { 
-    filteredSongs, 
-    searchQuery, 
-    setSearchQuery, 
-    selectedSongId, 
-    setSelectedSongId, 
-    fetchSongs,
-    albums,
-    activeAlbumId,
-    setActiveAlbumId,
-    showAlbumModal,
-    setShowAlbumModal,
-    showBuilder,
-    setShowBuilder,
-    editingAlbum,
-    processingProgress,
-    processImages,
-    updateAlbum,
-    addAlbum,
-    updateAlbumPath,
-    deleteAlbum,
-    contiItems,
-    addToConti,
-    setIsEditorOpen,
-    isLibraryOpen,
-    setIsLibraryOpen,
-    savedContis,
-    loadSavedConti,
-    deleteSavedConti,
-    clearConti
-  } = useHymnal();
+    const { 
+      filteredSongs, 
+      searchQuery, 
+      setSearchQuery, 
+      selectedSongId, 
+      setSelectedSongId, 
+      fetchSongs,
+      albums,
+      activeAlbumId,
+      setActiveAlbumId,
+      showAlbumModal,
+      setShowAlbumModal,
+      showBuilder,
+      setShowBuilder,
+      editingAlbum,
+      setEditingAlbum,
+      processingProgress,
+      processImages,
+      updateAlbum,
+      addAlbum,
+      updateAlbumPath,
+      deleteAlbum,
+      contiItems,
+      addToConti,
+      setIsEditorOpen,
+      isLibraryOpen,
+      setIsLibraryOpen,
+      savedContis,
+      loadSavedConti,
+      deleteSavedConti,
+      clearConti
+    } = useHymnal();
+  
+    // --- 글로벌 진행 바 추가 ---
+    const GlobalProgress = () => {
+      if (!processingProgress) return null;
+      const percent = Math.round((processingProgress.processed / (processingProgress.total || 1)) * 100);
+      
+      return (
+        <div className="fixed bottom-6 right-6 z-[200] w-72 bg-white rounded-2xl shadow-2xl border border-red-100 p-4 animate-in slide-in-from-bottom-5 duration-300">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-[10px] font-black text-slate-800 uppercase tracking-widest">데이터 처리 중...</span>
+            <span className="text-sm font-black text-red-500">{percent}%</span>
+          </div>
+          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-50">
+            <motion.div 
+              initial={{ width: 0 }}
+              animate={{ width: `${percent}%` }}
+              className="h-full bg-red-500 rounded-full"
+            />
+          </div>
+          <p className="text-[9px] text-slate-400 font-bold mt-2 text-center">({processingProgress.processed} / {processingProgress.total} 완료)</p>
+        </div>
+      );
+    };
 
   // --- 로컬 전용 UI 상태 ---
   const [albumInput, setAlbumInput] = useState('');
@@ -79,7 +104,7 @@ export const HymnalModule: React.FC = () => {
     if (!url) return null;
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
     const match = url.match(regExp);
-    return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}` : null;
+    return (match && match[2].length === 11) ? `https://www.youtube.com/embed/${match[2]}?enablejsapi=1&origin=${window.location.origin}` : null;
   };
 
   const addEditedVideo = () => {
@@ -112,6 +137,20 @@ export const HymnalModule: React.FC = () => {
     }
   }, [editingAlbum, showAlbumModal]);
 
+  // 유튜브 플레이어 상태에 따른 창 크기 자동 조절
+  useEffect(() => {
+    console.log('[HymnalModule] showYoutubePlayer changed:', showYoutubePlayer);
+    if (showYoutubePlayer) {
+      // 유튜브 열릴 때 가로 확장 (1200 -> 1800)
+      console.log('[HymnalModule] Requesting window expand (1800x960)');
+      hymnalApi.resizeWindow(1800, 960);
+    } else {
+      // 유튜브 닫힐 때 원래 크기로 복구
+      console.log('[HymnalModule] Requesting window shrink (1200x800)');
+      hymnalApi.resizeWindow(1200, 800);
+    }
+  }, [showYoutubePlayer]);
+
   // 곡 변경 시 줌 초기화 (60%를 기본값으로)
   useEffect(() => {
     setZoomScale(0.6);
@@ -124,7 +163,7 @@ export const HymnalModule: React.FC = () => {
   // --- 편집 모드 핸들러 ---
   const handleUpdateSong = async () => {
     if (!selectedSongId) return;
-    const result = await (window as any).ipcRenderer.hymnal.updateSong({
+    const result = await hymnalApi.updateSong({
       id: selectedSongId,
       title: editedTitle,
       lyrics: editedLyrics,
@@ -167,10 +206,7 @@ export const HymnalModule: React.FC = () => {
       
     if (!confirm(warningMsg)) return;
 
-    const result = await (window as any).ipcRenderer.hymnal.deleteSong({ 
-      songId: selectedSongId, 
-      shouldDeleteOriginal: isDeleteOriginal 
-    });
+    const result = await hymnalApi.deleteSong(selectedSongId, isDeleteOriginal);
     
     if (result.success) {
       alert(isDeleteOriginal ? '앱 데이터와 원본 파일이 삭제되었습니다.' : '앱 데이터가 삭제되었습니다.');
@@ -450,53 +486,54 @@ export const HymnalModule: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-3">
-                          <h2 className="text-3xl font-black text-slate-900 tracking-tighter">
-                            {selectedSong?.number}. {selectedSong?.title}
-                          </h2>
-                          <div className="flex gap-1.5">
-                            {selectedSong?.meter && <span className="px-2 py-0.5 bg-green-50 text-green-600 rounded-lg text-[10px] font-black border border-green-100">{selectedSong.meter}</span>}
-                            {selectedSong?.code && <span className="px-2 py-0.5 bg-red-50 text-red-600 rounded-lg text-[10px] font-black border border-red-100">{selectedSong.code} KEY</span>}
-                            {selectedSong?.category && <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black border border-blue-100">{selectedSong.category}</span>}
-                          </div>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-6">
+                        <h2 className="text-3xl font-black text-slate-900 tracking-tighter shrink-0">
+                          {selectedSong?.number}. {selectedSong?.title}
+                        </h2>
+                        
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={handleAddCurrentToConti}
+                            className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-black transition-all flex items-center gap-2 border border-indigo-100 shadow-sm"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            콘티 담기
+                          </button>
+                          <button 
+                            onClick={startEditing}
+                            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-black transition-all flex items-center gap-2"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            상세 편집
+                          </button>
+                          {selectedSong?.youtubeVideos && selectedSong.youtubeVideos.length > 0 && (
+                            <button 
+                              onClick={() => setShowYoutubePlayer(!showYoutubePlayer)}
+                              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 border shadow-sm ${
+                                showYoutubePlayer 
+                                  ? 'bg-red-600 text-white border-red-600 shadow-red-100' 
+                                  : 'bg-white text-red-600 border-red-100 hover:bg-red-50'
+                              }`}
+                            >
+                              <Youtube className="w-4 h-4" />
+                              {showYoutubePlayer ? '영상 닫기' : `영상 보기 (${selectedSong.youtubeVideos.length})`}
+                            </button>
+                          )}
                         </div>
-                        <p className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex gap-1.5">
+                          {selectedSong?.meter && <span className="px-2 py-0.5 bg-green-50 text-green-600 rounded-lg text-[10px] font-black border border-green-100">{selectedSong.meter}</span>}
+                          {selectedSong?.code && <span className="px-2 py-0.5 bg-red-50 text-red-600 rounded-lg text-[10px] font-black border border-red-100">{selectedSong.code} KEY</span>}
+                          {selectedSong?.category && <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black border border-blue-100">{selectedSong.category}</span>}
+                        </div>
+                        <p className="text-xs font-bold text-slate-400 flex items-center gap-1.5 pl-0.5">
                           <FolderOpen className="w-3 h-3" />
                           {albums.find(a => selectedSong?.id.startsWith(`${a.id}-`))?.name || '앨범 미지정'}
                           {selectedSong?.isManual && <span className="ml-2 text-red-500">[수동 수정됨]</span>}
                         </p>
-                      </div>
-                      
-                      <div className="flex gap-2 self-start pt-1">
-                        <button 
-                          onClick={handleAddCurrentToConti}
-                          className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-black transition-all flex items-center gap-2 border border-indigo-100 shadow-sm"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          콘티 담기
-                        </button>
-                        <button 
-                          onClick={startEditing}
-                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-black transition-all flex items-center gap-2"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          상세 편집
-                        </button>
-                        {selectedSong?.youtubeVideos && selectedSong.youtubeVideos.length > 0 && (
-                          <button 
-                            onClick={() => setShowYoutubePlayer(!showYoutubePlayer)}
-                            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 border shadow-sm ${
-                              showYoutubePlayer 
-                                ? 'bg-red-600 text-white border-red-600 shadow-red-100' 
-                                : 'bg-white text-red-600 border-red-100 hover:bg-red-50'
-                            }`}
-                          >
-                            <Youtube className="w-4 h-4" />
-                            {showYoutubePlayer ? '영상 닫기' : `영상 보기 (${selectedSong.youtubeVideos.length})`}
-                          </button>
-                        )}
                       </div>
                     </div>
                   )}
@@ -519,7 +556,7 @@ export const HymnalModule: React.FC = () => {
                 )}
                 
                 <div 
-                  className="bg-white shadow-2xl rounded-2xl mx-auto overflow-hidden transition-all duration-300 transform-gpu origin-top"
+                  className="bg-white shadow-2xl rounded-2xl mx-auto overflow-hidden transform-gpu origin-top"
                   style={{ 
                     width: `${850 * zoomScale}px`,
                     height: 'fit-content',
@@ -527,7 +564,7 @@ export const HymnalModule: React.FC = () => {
                   }}
                 >
                     <img 
-                      src={`hymnal-resource://${selectedSong?.filePath || selectedSong?.filename}`} 
+                      src={hymnalApi.resolveImagePath(selectedSong?.filePath || selectedSong?.filename || '')} 
                       alt={selectedSong?.title}
                       className="w-full h-auto block" 
                       draggable={false}
@@ -584,7 +621,7 @@ export const HymnalModule: React.FC = () => {
                               key={selectedSong.youtubeVideos[activeVideoIndex].url}
                               width="100%" 
                               height="100%" 
-                              src={`${getYoutubeEmbedUrl(selectedSong.youtubeVideos[activeVideoIndex].url)}?autoplay=1`}
+                              src={`${getYoutubeEmbedUrl(selectedSong.youtubeVideos[activeVideoIndex].url)}&autoplay=1`}
                               title="YouTube video player" 
                               frameBorder="0" 
                               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
@@ -679,7 +716,7 @@ export const HymnalModule: React.FC = () => {
                     type="text" 
                     value={albumInput}
                     onChange={(e) => setAlbumInput(e.target.value)}
-                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500"
+                    className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl font-black text-slate-900 focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 shadow-sm"
                     placeholder="예: CCM 베스트 2024"
                   />
                 </div>
@@ -771,6 +808,18 @@ export const HymnalModule: React.FC = () => {
                         {a.name}
                       </button>
                     ))}
+                    {/* 새 앨범 추가 버튼 */}
+                    <button 
+                      onClick={() => {
+                        setEditingAlbum(null);
+                        setAlbumInput('');
+                        setShowAlbumModal(true);
+                      }}
+                      className="p-4 rounded-2xl text-xs font-black transition-all border border-dashed border-slate-300 text-slate-400 hover:border-red-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      앨범 추가
+                    </button>
                   </div>
                 </div>
 
@@ -834,6 +883,8 @@ export const HymnalModule: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      <GlobalProgress />
 
       <SavedContisModal 
         isOpen={isLibraryOpen}

@@ -15,24 +15,55 @@
   "build": {
     "appId": "com.ceum.bibletool",
     "productName": "CEUM BIBLE Tool",
+    "compression": "maximum",
+    "asar": true,
     "directories": {
-      "output": "release"
+      "output": "release/${version}"
     },
     "files": [
       "dist",
       "dist-electron"
     ],
+    "extraResources": [
+      "hymnal_master_data.xlsx",
+      "[CEUM]_설치_및_사용가이드.txt",
+      "public/data/**/*"
+    ],
     "mac": {
       "target": [
         "dmg"
       ],
-      "icon": "public/electron-vite.svg"
+      "icon": "public/icon.png",
+      "artifactName": "ceum_bible_ccm_${version}_${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "CEUM BIBLE Tool",
+      "artifactName": "ceum_bible_ccm_${version}_${arch}.${ext}",
+      "contents": [
+        {
+          "x": 448,
+          "y": 160,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 192,
+          "y": 160,
+          "type": "file"
+        },
+        {
+          "x": 320,
+          "y": 280,
+          "type": "file",
+          "path": "[CEUM]_설치_및_사용가이드.txt"
+        }
+      ]
     },
     "win": {
       "target": [
         "portable"
       ],
-      "icon": "public/electron-vite.svg"
+      "icon": "public/icon.png"
     }
   },
   "dependencies": {
