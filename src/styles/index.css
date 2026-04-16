@@ -41,4 +41,25 @@
   .verse-item.selected {
     @apply bg-red-50 border-red-500;
   }
+
+  /* ✅ 검색 사이드 패널 전용 스타일 */
+  .search-side-panel {
+    @apply flex flex-col h-full bg-white border-l border-slate-200 shadow-2xl;
+  }
+
+  .search-panel-header {
+    @apply p-5 border-b border-slate-100 bg-white/95 backdrop-blur-sm sticky top-0 z-20;
+  }
+
+  .search-options-grid {
+    @apply grid grid-cols-2 gap-3 mb-4 p-3 bg-slate-50 rounded-2xl border border-slate-100;
+  }
+
+  .search-result-list {
+    @apply flex-1 overflow-y-auto p-2;
+  }
+
+  .search-result-item {
+    @apply p-2 hover:bg-red-50/50 rounded-xl cursor-pointer transition-all border-l-4 border-l-transparent hover:border-l-red-500 mb-0.5;
+  }
 }

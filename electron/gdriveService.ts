@@ -55,6 +55,13 @@ export class GDriveService {
           reject(e);
           server.close();
         }
+      }).on('error', (err: any) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error('Auth server port 5005 is already in use');
+          reject(new Error('인증 서버 포트(5005)가 이미 사용 중입니다. 다른 작업이 끝날 때까지 기다려 주세요.'));
+        } else {
+          reject(err);
+        }
       }).listen(5005, () => {
         console.log('Auth server listening on port 5005');
       });

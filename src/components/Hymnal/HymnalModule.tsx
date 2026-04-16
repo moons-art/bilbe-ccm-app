@@ -375,113 +375,135 @@ export const HymnalModule: React.FC = () => {
               <div className="p-8 pb-4 border-b border-slate-50 flex items-start justify-between bg-white z-10">
                 <div className="flex-1">
                   {isEditing ? (
-                    <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-top-4">
+                    <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-top-4 w-full">
+                      {/* 1행: 번호 + 제목 */}
                       <div className="flex gap-2">
                         <input 
-                          type="number"
-                          value={editedNumber}
-                          onChange={(e) => setEditedNumber(parseInt(e.target.value, 10))}
-                          className="w-20 px-3 py-3 bg-white border border-slate-300 rounded-2xl text-sm font-black focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 text-slate-950 shadow-sm"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={editedNumber.toString()}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^0-9]/g, '');
+                            setEditedNumber(val ? parseInt(val, 10) : 0);
+                          }}
+                          className="w-20 h-11 px-3 py-3 bg-white border border-slate-300 rounded-2xl text-sm font-black focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 text-slate-950 shadow-sm shrink-0 text-center"
                           placeholder="번호"
                         />
                         <input 
                           type="text"
                           value={editedTitle}
                           onChange={(e) => setEditedTitle(e.target.value)}
-                          className="flex-1 px-4 py-3 bg-white border border-slate-300 rounded-2xl text-sm font-black focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 text-slate-950 shadow-sm"
+                          className="flex-1 h-11 px-4 py-3 bg-white border border-slate-300 rounded-2xl text-sm font-black focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 text-slate-950 shadow-sm"
                           placeholder="곡 제목"
                         />
                       </div>
                       
-                      <div className="flex gap-3">
+                      {/* 2행: 분류 + 코드 + 박자 | 취소 + 저장 + 삭제옵션 (모두 고정높이 h-11) */}
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                         <input 
                           type="text"
                           value={editedCategory}
                           onChange={(e) => setEditedCategory(e.target.value)}
-                          className="w-32 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-900 shadow-sm"
+                          className="w-32 h-11 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-900 shadow-sm shrink-0"
                           placeholder="분류 (태그)"
                         />
                         <input 
                           type="text"
                           value={editedCode}
                           onChange={(e) => setEditedCode(e.target.value)}
-                          className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-900 shadow-sm uppercase"
-                          placeholder="코드 (예: G)"
+                          className="w-20 h-11 px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-black text-slate-900 shadow-sm uppercase shrink-0 text-center"
+                          placeholder="코드"
                         />
                         <input 
                           type="text"
                           value={editedMeter}
                           onChange={(e) => setEditedMeter(e.target.value)}
-                          className="w-20 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-900 shadow-sm"
-                          placeholder="박자 (4/4)"
+                          className="w-20 h-11 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-900 shadow-sm shrink-0 text-center"
+                          placeholder="박자"
                         />
-                        <div className="flex-1 flex flex-col gap-2">
-                           {editedVideos.map((video, idx) => (
-                             <div key={idx} className="flex gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                               <input 
-                                 type="text"
-                                 value={video.name}
-                                 onChange={(e) => updateEditedVideo(idx, 'name', e.target.value)}
-                                 className="w-32 px-3 py-2 bg-white border border-slate-300 rounded-xl text-[10px] font-black text-slate-900 shadow-sm"
-                                 placeholder="영상 이름 (예: 라이브)"
-                               />
-                               <input 
-                                 type="text"
-                                 value={video.url}
-                                 onChange={(e) => updateEditedVideo(idx, 'url', e.target.value)}
-                                 className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-[10px] font-black text-slate-900 shadow-sm"
-                                 placeholder="유튜브 링크"
-                               />
-                               <button 
-                                 onClick={() => removeEditedVideo(idx)}
-                                 className="p-2 hover:bg-red-50 text-red-400 rounded-xl transition-colors"
-                               >
-                                 <Trash2 className="w-4 h-4" />
-                               </button>
-                             </div>
-                           ))}
-                           <button 
-                             onClick={addEditedVideo}
-                             className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black transition-all w-fit"
-                           >
-                             <Plus className="w-3 h-3" />
-                             영상 추가
-                           </button>
+                        
+                        <div className="flex items-center gap-2 ml-1">
+                          <button 
+                            onClick={() => setIsEditing(false)}
+                            className="h-11 px-5 bg-slate-100 text-slate-500 rounded-xl text-xs font-black hover:bg-slate-200 transition-all shrink-0"
+                          >
+                            취소
+                          </button>
+                          <button 
+                            onClick={handleUpdateSong}
+                            className="h-11 px-6 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg shadow-red-200 hover:bg-red-700 transition-all shrink-0"
+                          >
+                            저장 완료
+                          </button>
                         </div>
-                        <button 
-                          onClick={handleUpdateSong}
-                          className="self-end px-6 py-2 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg shadow-red-200 hover:bg-red-700 transition-all"
-                        >
-                          저장 완료
-                        </button>
-                        <button 
-                          onClick={() => setIsEditing(false)}
-                          className="px-6 py-2 bg-slate-100 text-slate-500 rounded-xl text-xs font-black hover:bg-slate-200 transition-all"
-                        >
-                          취소
-                        </button>
-                        <div className="ml-auto flex items-center gap-5 pl-4 border-l border-slate-200">
-                           <label className="flex items-center gap-2 cursor-pointer group">
+
+                        <div className="flex-1 flex items-center justify-end gap-4 min-w-fit border-l border-slate-100 pl-4 ml-2">
+                           <label className="flex items-center gap-2 cursor-pointer group shrink-0">
                               <input 
                                 type="checkbox"
                                 checked={isDeleteOriginal}
                                 onChange={(e) => setIsDeleteOriginal(e.target.checked)}
                                 className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
                               />
-                              <div className="flex flex-col">
-                                <span className="text-[11px] font-black text-slate-700 group-hover:text-red-600 transition-colors">pc원본 폴더의 악보파일도 삭제</span>
-                              </div>
+                              <span className="text-[10px] font-black text-slate-500 group-hover:text-red-600 transition-colors">PC원본삭제</span>
                            </label>
                            <button 
                              onClick={handleDeleteSong}
-                             className={`p-3 rounded-xl transition-all flex items-center gap-2 font-black text-xs ${
+                             className={`h-11 px-3 rounded-xl transition-all flex items-center gap-2 font-black text-xs shrink-0 ${
                                isDeleteOriginal ? 'bg-red-500 text-white shadow-lg shadow-red-200' : 'bg-red-50 text-red-500 hover:bg-red-100'
                              }`}
-                             title={isDeleteOriginal ? "원본 파일 포함 삭제" : "앱 데이터만 삭제"}
                            >
                              <Trash2 className="w-4 h-4" />
-                             {isDeleteOriginal && <span>원본포함삭제</span>}
+                             {isDeleteOriginal && <span className="text-[10px]">원본삭제</span>}
                            </button>
+                        </div>
+                      </div>
+
+                      {/* 3행: 유튜브 영상 리스트 영역 (독립 배치) */}
+                      <div className="bg-slate-50/50 p-3 rounded-2xl border border-dashed border-slate-200">
+                        <div className="flex items-center justify-between mb-3 px-1">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                            <Youtube className="w-3.5 h-3.5" />
+                            영상 리스트
+                          </p>
+                          <button 
+                            onClick={addEditedVideo}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:border-red-300 hover:text-red-500 text-slate-500 rounded-lg text-[10px] font-black transition-all shadow-sm"
+                          >
+                            <Plus className="w-3 h-3" />
+                            영상 추가
+                          </button>
+                        </div>
+                        
+                        <div className="flex flex-col gap-2">
+                           {editedVideos.map((video, idx) => (
+                             <div key={idx} className="flex gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                               <input 
+                                 type="text"
+                                 value={video.name}
+                                 onChange={(e) => updateEditedVideo(idx, 'name', e.target.value)}
+                                 className="w-32 h-10 px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black text-slate-900 shadow-sm"
+                                 placeholder="이름 (예: 라이브)"
+                               />
+                               <input 
+                                 type="text"
+                                 value={video.url}
+                                 onChange={(e) => updateEditedVideo(idx, 'url', e.target.value)}
+                                 className="flex-1 h-10 px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black text-slate-900 shadow-sm"
+                                 placeholder="유튜브 URL"
+                               />
+                               <button 
+                                 onClick={() => removeEditedVideo(idx)}
+                                 className="h-10 w-10 flex items-center justify-center hover:bg-red-50 text-red-300 hover:text-red-500 rounded-xl transition-colors shrink-0"
+                               >
+                                 <Trash2 className="w-4 h-4" />
+                                </button>
+                             </div>
+                           ))}
+                           {editedVideos.length === 0 && (
+                             <p className="text-[10px] text-slate-300 text-center py-2 font-bold italic">연결된 영상이 없습니다.</p>
+                           )}
                         </div>
                       </div>
                     </div>

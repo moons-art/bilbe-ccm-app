@@ -1,226 +1,176 @@
-import { BrowserWindow, Menu, Tray, app, dialog, nativeImage, shell } from "electron";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import fs from "node:fs";
-import http from "node:http";
+import { BrowserWindow as e, Menu as t, Tray as n, app as r, dialog as i, nativeImage as a, shell as o } from "electron";
+import { fileURLToPath as s } from "node:url";
+import c from "node:path";
+import l from "node:fs";
+import u from "node:http";
 //#region electron/main.ts
-var __dirname = path.dirname(fileURLToPath(import.meta.url));
-process.env.APP_ROOT = path.join(__dirname, "..");
-var VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-var MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
-var RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
-var BIBLE_DATA_PATH = app.isPackaged ? path.join(process.resourcesPath, "public/data") : path.join(process.env.APP_ROOT, "public/data");
-console.log("[Main] Bible Data Path:", BIBLE_DATA_PATH);
-var win = null;
-var localServer = null;
-var tray = null;
-var hymnalLogic = null;
-var FIXED_PORT = 8080;
-var lastProgress = {
+var d = c.dirname(s(import.meta.url));
+process.env.APP_ROOT = c.join(d, "..");
+var f = process.env.VITE_DEV_SERVER_URL, p = c.join(process.env.APP_ROOT, "dist-electron"), m = c.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = f ? c.join(process.env.APP_ROOT, "public") : m;
+var h = r.isPackaged ? c.join(process.resourcesPath, "public/data") : c.join(process.env.APP_ROOT, "public/data");
+r.requestSingleInstanceLock() ? r.on("second-instance", () => {
+	g && (g.isMinimized() && g.restore(), g.focus());
+}) : r.quit(), console.log("[Main] Bible Data Path:", h);
+var g = null, _ = null, v = null, y = null, b = 8080, x = {
 	processed: 0,
 	total: 0
 };
-async function initHymnalDir() {
-	const hymnalDir = path.join(app.getPath("userData"), "hymnal");
-	const imagesDir = path.join(hymnalDir, "hymnal_images");
-	const dbPath = path.join(hymnalDir, "music_data.json");
-	const contisPath = path.join(hymnalDir, "saved_contis.json");
-	const settingsPath = path.join(hymnalDir, "settings.json");
-	if (!fs.existsSync(hymnalDir)) fs.mkdirSync(hymnalDir, { recursive: true });
-	if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
-	if (!fs.existsSync(dbPath)) fs.writeFileSync(dbPath, "[]", "utf8");
-	if (!fs.existsSync(contisPath)) fs.writeFileSync(contisPath, "[]", "utf8");
-	if (!fs.existsSync(settingsPath)) fs.writeFileSync(settingsPath, "{}", "utf8");
-	if (hymnalLogic && typeof hymnalLogic.seedInitialData === "function") {
-		const result = await hymnalLogic.seedInitialData();
-		if (result.success && result.count) console.log(`[Init] Seeded ${result.count} songs to built-in DB.`);
+async function S() {
+	let e = c.join(r.getPath("userData"), "hymnal"), t = c.join(e, "hymnal_images"), n = c.join(e, "music_data.json"), i = c.join(e, "saved_contis.json"), a = c.join(e, "settings.json");
+	if (l.existsSync(e) || l.mkdirSync(e, { recursive: !0 }), l.existsSync(t) || l.mkdirSync(t, { recursive: !0 }), l.existsSync(n) || l.writeFileSync(n, "[]", "utf8"), l.existsSync(i) || l.writeFileSync(i, "[]", "utf8"), l.existsSync(a) || l.writeFileSync(a, "{}", "utf8"), y && typeof y.seedInitialData == "function") {
+		let e = await y.seedInitialData();
+		e.success && e.count && console.log(`[Init] Seeded ${e.count} songs to built-in DB.`);
 	}
 }
-async function createWindow() {
-	win = new BrowserWindow({
+async function C() {
+	g = new e({
 		width: 1200,
 		height: 800,
-		show: true,
-		icon: path.join(process.env.VITE_PUBLIC || path.join(__dirname, "../public"), "icon.png"),
+		show: !0,
+		icon: c.join(process.env.VITE_PUBLIC || c.join(d, "../public"), "icon.png"),
 		webPreferences: {
-			preload: path.join(__dirname, "preload.mjs"),
-			webSecurity: true,
-			contextIsolation: true,
-			nodeIntegration: false
+			preload: c.join(d, "preload.mjs"),
+			webSecurity: !0,
+			contextIsolation: !0,
+			nodeIntegration: !1
 		}
-	});
-	win.webContents.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-	const { registerHymnalIPC } = await import("./hymnalIPC-CHqbKHLp.js");
-	registerHymnalIPC(win);
-	if (VITE_DEV_SERVER_URL) win.loadURL(VITE_DEV_SERVER_URL);
-	else win.loadURL(`http://localhost:${FIXED_PORT}/index.html`);
+	}), g.webContents.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+	let { registerHymnalIPC: t } = await import("./hymnalIPC-DoFh5nsz.js");
+	t(g), f ? g.loadURL(f) : g.loadURL(`http://localhost:${b}/index.html`);
 }
-function createTray() {
-	const iconPath = path.join(process.env.VITE_PUBLIC || path.join(__dirname, "../public"), "icon.png");
-	tray = new Tray(nativeImage.createFromPath(iconPath).resize({
+function w() {
+	let e = c.join(process.env.VITE_PUBLIC || c.join(d, "../public"), "icon.png");
+	v = new n(a.createFromPath(e).resize({
 		width: 16,
 		height: 16
 	}));
-	const contextMenu = Menu.buildFromTemplate([
+	let i = t.buildFromTemplate([
 		{
 			label: "찬양 브라우저 열기",
-			click: () => shell.openExternal(`http://localhost:${FIXED_PORT}`)
+			click: () => o.openExternal(`http://localhost:${b}`)
 		},
 		{
 			label: "관리 창 열기 (Electron)",
 			click: () => {
-				if (win) win.show();
-				else createWindow().then(() => win?.show());
+				g ? g.show() : C().then(() => g?.show());
 			}
 		},
 		{ type: "separator" },
 		{
 			label: "종료",
 			click: () => {
-				app.isQuitting = true;
-				app.quit();
+				r.isQuitting = !0, r.quit();
 			}
 		}
 	]);
-	tray.setToolTip("ceum 성경CCM");
-	tray.setContextMenu(contextMenu);
-	tray.on("click", () => {
-		shell.openExternal(`http://localhost:${FIXED_PORT}`);
+	v.setToolTip("ceum 성경CCM"), v.setContextMenu(i), v.on("click", () => {
+		o.openExternal(`http://localhost:${b}`);
 	});
 }
-function startLocalServer() {
-	return new Promise((resolve) => {
-		localServer = http.createServer(async (req, res) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-			if (req.method === "OPTIONS") {
-				res.writeHead(204);
-				res.end();
+function T() {
+	return new Promise((e) => {
+		_ = u.createServer(async (e, t) => {
+			if (t.setHeader("Access-Control-Allow-Origin", "*"), t.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE"), t.setHeader("Access-Control-Allow-Headers", "Content-Type"), e.method === "OPTIONS") {
+				t.writeHead(204), t.end();
 				return;
 			}
-			let urlPath = decodeURIComponent(req.url || "/").split("?")[0];
-			if (urlPath.startsWith("/api/")) {
-				const action = urlPath.replace("/api/", "");
-				let body = "";
-				req.on("data", (chunk) => {
-					body += chunk;
-				});
-				req.on("end", async () => {
+			let n = decodeURIComponent(e.url || "/").split("?")[0];
+			if (n.startsWith("/api/")) {
+				let a = n.replace("/api/", ""), o = "";
+				e.on("data", (e) => {
+					o += e;
+				}), e.on("end", async () => {
 					try {
-						const parsedBody = body ? JSON.parse(body) : {};
-						let result = { error: "Unknown action" };
-						if (action === "get-songs") result = await hymnalLogic.getSongs();
-						else if (action === "get-settings") result = await hymnalLogic.getSettings();
-						else if (action === "save-settings") result = await hymnalLogic.saveSettings(parsedBody);
-						else if (action === "get-saved-contis") result = await hymnalLogic.getSavedContis();
-						else if (action === "save-conti") result = await hymnalLogic.saveConti(parsedBody);
-						else if (action === "delete-saved-conti") result = await hymnalLogic.deleteSavedConti(parsedBody.id);
-						else if (action === "add-album") result = await hymnalLogic.addAlbum(parsedBody);
-						else if (action === "update-album") result = await hymnalLogic.updateAlbum(parsedBody);
-						else if (action === "delete-album") result = await hymnalLogic.deleteAlbum(parsedBody.id);
-						else if (action === "update-song") result = await hymnalLogic.updateSong(parsedBody);
-						else if (action === "delete-song") result = await hymnalLogic.deleteSong(parsedBody);
-						else if (action === "process-images") {
-							lastProgress = {
-								processed: 0,
-								total: parsedBody.total || 100
-							};
-							result = await hymnalLogic.processImages(parsedBody, (p) => {
-								lastProgress = p;
-							});
-						} else if (action === "sync-gdrive") {
-							lastProgress = {
-								processed: 0,
-								total: 100
-							};
-							result = await hymnalLogic.syncGDrive(parsedBody.albumId, (p) => {
-								lastProgress = p;
-							});
-						} else if (action === "get-progress") result = lastProgress;
-						else if (action === "get-auth-url") result = { url: await hymnalLogic.getAuthUrl() };
-						else if (action === "confirm-auth") result = await hymnalLogic.confirmAuth(parsedBody.code);
-						else if (action === "open-external") {
-							hymnalLogic.openExternal(parsedBody.url);
-							result = { success: true };
-						} else if (action === "select-folder") {
-							app.focus({ steal: true });
-							const dialogResult = await dialog.showOpenDialog({
+						let e = o ? JSON.parse(o) : {}, n = { error: "Unknown action" };
+						if (a === "get-songs") n = await y.getSongs();
+						else if (a === "get-settings") n = await y.getSettings();
+						else if (a === "save-settings") n = await y.saveSettings(e);
+						else if (a === "get-saved-contis") n = await y.getSavedContis();
+						else if (a === "save-conti") n = await y.saveConti(e);
+						else if (a === "delete-saved-conti") n = await y.deleteSavedConti(e.id);
+						else if (a === "add-album") n = await y.addAlbum(e);
+						else if (a === "update-album") n = await y.updateAlbum(e);
+						else if (a === "delete-album") n = await y.deleteAlbum(e.id);
+						else if (a === "update-song") n = await y.updateSong(e);
+						else if (a === "delete-song") n = await y.deleteSong(e);
+						else if (a === "process-images") x = {
+							processed: 0,
+							total: e.total || 100
+						}, n = await y.processImages(e, (e) => {
+							x = e;
+						});
+						else if (a === "sync-gdrive") x = {
+							processed: 0,
+							total: 100
+						}, n = await y.syncGDrive(e.albumId, (e) => {
+							x = e;
+						});
+						else if (a === "get-progress") n = x;
+						else if (a === "get-auth-url") n = { url: await y.getAuthUrl() };
+						else if (a === "confirm-auth") n = await y.confirmAuth(e.code);
+						else if (a === "open-external") y.openExternal(e.url), n = { success: !0 };
+						else if (a === "select-folder") {
+							r.focus({ steal: !0 });
+							let e = await i.showOpenDialog({
 								properties: ["openDirectory"],
 								title: "앨범 이미지 폴더 선택"
 							});
-							result = { path: dialogResult.filePaths && dialogResult.filePaths.length > 0 ? dialogResult.filePaths[0] : null };
-						} else if (action === "resize-window") {
-							if (win) {
-								const { width, height } = parsedBody;
-								if (width && height) {
-									win.setSize(width, height, true);
-									result = { success: true };
-								}
+							n = { path: e.filePaths && e.filePaths.length > 0 ? e.filePaths[0] : null };
+						} else if (a === "resize-window") {
+							if (g) {
+								let { width: t, height: r } = e;
+								t && r && (g.setSize(t, r, !0), n = { success: !0 });
 							}
-						} else console.log("Unknown API action requested:", action);
-						res.writeHead(200, { "Content-Type": "application/json" });
-						res.end(JSON.stringify(result));
-					} catch (err) {
-						res.writeHead(500);
-						res.end(JSON.stringify({ error: err.message }));
+						} else console.log("Unknown API action requested:", a);
+						t.writeHead(200, { "Content-Type": "application/json" }), t.end(JSON.stringify(n));
+					} catch (e) {
+						t.writeHead(500), t.end(JSON.stringify({ error: e.message }));
 					}
 				});
 				return;
 			}
-			if (urlPath.startsWith("/resource/")) {
-				let fileName = urlPath.replace("/resource/", "");
-				fileName = fileName.replace("hymnal_images/", "");
-				const filePath = path.join(app.getPath("userData"), "hymnal", "hymnal_images", fileName);
-				fs.readFile(filePath, (err, data) => {
-					if (err) {
-						res.writeHead(404);
-						res.end("Resource Not Found");
+			if (n.startsWith("/resource/")) {
+				let e = n.replace("/resource/", "");
+				e = e.replace("hymnal_images/", "");
+				let i = c.join(r.getPath("userData"), "hymnal", "hymnal_images", e);
+				l.readFile(i, (e, n) => {
+					if (e) {
+						t.writeHead(404), t.end("Resource Not Found");
 						return;
 					}
-					res.writeHead(200, { "Content-Type": "image/webp" });
-					res.end(data);
+					t.writeHead(200, { "Content-Type": "image/webp" }), t.end(n);
 				});
 				return;
 			}
-			if (urlPath === "/" || urlPath === "") urlPath = "/index.html";
-			const relativePath = urlPath.startsWith("/") ? urlPath.slice(1) : urlPath;
-			if (urlPath.startsWith("/data/")) {
-				const bibleFileName = path.basename(urlPath);
-				const bibleFilePath = path.join(BIBLE_DATA_PATH, bibleFileName);
-				console.log(`[Main] Serving Bible File: ${bibleFileName} from ${bibleFilePath}`);
-				fs.access(bibleFilePath, fs.constants.F_OK, (err) => {
-					if (err) {
-						console.error(`[Main] Bible File Not Found at: ${bibleFilePath}`);
-						res.writeHead(404);
-						res.end("Bible File Not Found");
+			(n === "/" || n === "") && (n = "/index.html");
+			let a = n.startsWith("/") ? n.slice(1) : n;
+			if (n.startsWith("/data/")) {
+				let e = c.basename(n), r = c.join(h, e);
+				console.log(`[Main] Serving Bible File: ${e} from ${r}`), l.access(r, l.constants.F_OK, (e) => {
+					if (e) {
+						console.error(`[Main] Bible File Not Found at: ${r}`), t.writeHead(404), t.end("Bible File Not Found");
 						return;
 					}
-					fs.readFile(bibleFilePath, (err, data) => {
-						if (err) {
-							console.error(`[Main] Error reading bible file: ${err.message}`);
-							res.writeHead(500);
-							res.end("Error reading bible file");
+					l.readFile(r, (e, n) => {
+						if (e) {
+							console.error(`[Main] Error reading bible file: ${e.message}`), t.writeHead(500), t.end("Error reading bible file");
 							return;
 						}
-						res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-						res.end(data);
+						t.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }), t.end(n);
 					});
 				});
 				return;
 			}
-			const filePath = path.join(RENDERER_DIST, relativePath);
-			fs.access(filePath, fs.constants.F_OK, (err) => {
-				const finalPath = err ? path.join(RENDERER_DIST, "index.html") : filePath;
-				fs.readFile(finalPath, (err, data) => {
-					if (err) {
-						res.writeHead(404);
-						res.end("Not Found");
+			let o = c.join(m, a);
+			l.access(o, l.constants.F_OK, (e) => {
+				let n = e ? c.join(m, "index.html") : o;
+				l.readFile(n, (e, r) => {
+					if (e) {
+						t.writeHead(404), t.end("Not Found");
 						return;
 					}
-					const ext = path.extname(finalPath).toLowerCase();
-					const mimeTypes = {
+					let i = c.extname(n).toLowerCase(), a = {
 						".html": "text/html",
 						".js": "text/javascript",
 						".mjs": "text/javascript",
@@ -237,31 +187,26 @@ function startLocalServer() {
 						".wasm": "application/wasm",
 						".txt": "text/plain"
 					};
-					res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
-					res.end(data);
+					t.writeHead(200, { "Content-Type": a[i] || "application/octet-stream" }), t.end(r);
 				});
 			});
-		});
-		localServer.listen(FIXED_PORT, "0.0.0.0", () => {
-			console.log(`Local server running at http://localhost:${FIXED_PORT}`);
-			resolve(FIXED_PORT);
+		}), _.on("error", (e) => {
+			if (e.code === "EADDRINUSE") {
+				let e = `포트 ${b}가 이미 사용 중입니다.\n\n앱이 이미 실행 중이거나 다른 프로그램이 해당 포트를 쓰고 있습니다.\n기존 앱을 종료하거나 컴퓨터를 재부팅 후 다시 시도해 주세요.`;
+				i.showErrorBox("서버 구동 실패", e), r.quit();
+			} else i.showErrorBox("서버 오류", `서버 구동 중 예기치 못한 오류가 발생했습니다: ${e.message}`);
+		}), _.listen(b, "0.0.0.0", () => {
+			console.log(`Local server running at http://localhost:${b}`), e(b);
 		});
 	});
 }
-app.whenReady().then(async () => {
-	const { createHymnalLogic } = await import("./hymnalIPC-CHqbKHLp.js");
-	hymnalLogic = createHymnalLogic();
-	await initHymnalDir();
-	await startLocalServer();
-	createTray();
-	createWindow();
-});
-app.on("window-all-closed", () => {
-	if (process.platform !== "darwin") {}
-});
-app.on("activate", () => {});
-app.on("before-quit", () => {
-	if (localServer) localServer.close();
+r.whenReady().then(async () => {
+	let { createHymnalLogic: e } = await import("./hymnalIPC-DoFh5nsz.js");
+	y = e(), await S(), await T(), w(), C();
+}), r.on("window-all-closed", () => {
+	process.platform;
+}), r.on("activate", () => {}), r.on("before-quit", () => {
+	_ && _.close();
 });
 //#endregion
-export { MAIN_DIST, RENDERER_DIST, VITE_DEV_SERVER_URL };
+export { p as MAIN_DIST, m as RENDERER_DIST, f as VITE_DEV_SERVER_URL };

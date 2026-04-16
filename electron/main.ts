@@ -21,6 +21,22 @@ const BIBLE_DATA_PATH = app.isPackaged
   ? path.join(process.resourcesPath, 'public/data')
   : path.join(process.env.APP_ROOT, 'public/data')
 
+// 중복 실행 방지 (Single Instance Lock)
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  // 이미 실행 중인 인스턴스가 있으면 현재 인스턴스 종료
+  app.quit()
+} else {
+  // 두 번째 인스턴스가 실행될 때 기존 창을 포커스
+  app.on('second-instance', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+  })
+}
+
 console.log('[Main] Bible Data Path:', BIBLE_DATA_PATH);
 
 let win: BrowserWindow | null = null
@@ -264,6 +280,16 @@ function startLocalServer(): Promise<number> {
         })
       })
     })
+
+    localServer.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        const msg = `포트 ${FIXED_PORT}가 이미 사용 중입니다.\n\n앱이 이미 실행 중이거나 다른 프로그램이 해당 포트를 쓰고 있습니다.\n기존 앱을 종료하거나 컴퓨터를 재부팅 후 다시 시도해 주세요.`;
+        dialog.showErrorBox('서버 구동 실패', msg);
+        app.quit();
+      } else {
+        dialog.showErrorBox('서버 오류', `서버 구동 중 예기치 못한 오류가 발생했습니다: ${err.message}`);
+      }
+    });
 
     localServer.listen(FIXED_PORT, '0.0.0.0', () => {
       console.log(`Local server running at http://localhost:${FIXED_PORT}`)

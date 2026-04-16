@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useRef, useState } from 'react';
 import type { BibleVersion, Verse } from '../types/bible';
-import { useBible } from '../stores/BibleProvider';
+import { useBible } from '../stores/BibleContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Copy, X } from 'lucide-react';
 
@@ -16,30 +16,52 @@ interface BibleViewerProps {
 const VerseItem = React.memo<{
   verse: Verse;
   isSelected: boolean;
+  isHighlighted: boolean;
   fontSize: number;
   lineHeight: number;
   onClick: (v: number) => void;
-}>(({ verse, isSelected, fontSize, lineHeight, onClick }) => {
+}>(({ verse, isSelected, isHighlighted, fontSize, lineHeight, onClick }) => {
+  // 색상 결정 로직: 복사 선택(isSelected) > 검색 강조(isHighlighted)
+  const itemStyles = isSelected 
+    ? 'bg-red-50 border-l-red-500' 
+    : isHighlighted 
+      ? 'bg-sky-50 border-l-sky-500' 
+      : 'hover:bg-slate-50 border-l-transparent';
+
+  const numStyles = isSelected 
+    ? 'text-red-600' 
+    : isHighlighted 
+      ? 'text-sky-600' 
+      : 'text-slate-400';
+
+  const textStyles = isSelected 
+    ? 'text-slate-900 font-medium' 
+    : isHighlighted 
+      ? 'text-slate-900 font-medium' 
+      : 'text-slate-700';
+
   return (
     <div
+      data-verse={verse.verse}
       onClick={() => onClick(verse.verse)}
+      style={{ scrollMarginTop: '44px' }}
       className={`
         verse-item group cursor-pointer rounded-md transition-colors
-        ${isSelected ? 'bg-red-50/50 border-l-red-500' : 'hover:bg-slate-50 border-l-transparent'}
+        ${itemStyles}
       `}
     >
       <div className="flex gap-3 items-start px-2">
-        <span className={`text-[11px] font-bold mt-1.5 w-6 shrink-0 text-center ${isSelected ? 'text-red-600' : 'text-slate-400'}`}>
+        <span className={`text-[11px] font-bold mt-1.5 w-6 shrink-0 text-center ${numStyles}`}>
           {verse.verse}
         </span>
         <div className="flex-1 min-w-0">
           {verse.title && (
-            <div className="mb-1 text-red-700 font-extrabold text-[0.85em] tracking-tight">
+            <div className={`mb-1 font-extrabold text-[0.85em] tracking-tight ${isSelected || isHighlighted ? 'text-red-700' : 'text-red-700/60'}`}>
               &lt;{verse.title}&gt;
             </div>
           )}
           <p 
-            className={`leading-relaxed whitespace-pre-wrap ${isSelected ? 'text-slate-900 font-medium' : 'text-slate-700'}`}
+            className={`leading-relaxed whitespace-pre-wrap ${textStyles}`}
             style={{ fontSize: `${fontSize}px`, lineHeight: lineHeight }}
           >
             {verse.content}
@@ -50,7 +72,7 @@ const VerseItem = React.memo<{
   );
 });
 
-export const BibleViewer: React.FC<BibleViewerProps> = ({ 
+export const BibleViewer = React.memo<BibleViewerProps>(({ 
   selectedVersions, 
   currentBookId, 
   currentChapter = 1, 
@@ -83,14 +105,13 @@ export const BibleViewer: React.FC<BibleViewerProps> = ({
           if (!container) return;
           const verseElement = container.querySelector(`[data-verse="${highlightVerse}"]`);
           if (verseElement) {
-            verseElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            verseElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         });
       }, 100);
-      setSelectedVerses(new Set([highlightVerse]));
+      // ✅ 사용자 요청: 검색/이동 시 자동 선택(복사버튼 활성화) 방지
+      // setSelectedVerses(new Set([highlightVerse])); 
       return () => clearTimeout(timer);
-    } else {
-      setSelectedVerses(new Set());
     }
   }, [highlightVerse, currentBookId, currentChapter]);
 
@@ -162,11 +183,62 @@ export const BibleViewer: React.FC<BibleViewerProps> = ({
 
     try {
       await navigator.clipboard.writeText(fullText.trim());
-      alert("선택한 구절이 복사되었습니다.");
+      // ✅ 사용자 요청: 알림창 없이 즉시 선택 해제 (버튼 사라짐)
+      setSelectedVerses(new Set());
     } catch (err) {
       console.error("Failed to copy text: ", err);
       alert("복사에 실패했습니다.");
     }
+  };
+
+  const isSyncingRef = useRef(false);
+  const lastScrolledIndexRef = useRef<number | null>(null);
+
+  // ✅ 실시간 스크롤 동기화 로직
+  const handleScroll = (idx: number, e: React.UIEvent<HTMLDivElement>) => {
+    // 이미 동기화 중이거나, 다른 창에 의해 유도된 스크롤이면 무시
+    if (isSyncingRef.current) return;
+    
+    const source = e.currentTarget;
+    lastScrolledIndexRef.current = idx;
+    isSyncingRef.current = true;
+
+    // 현재 스크롤된 창의 상단에 가장 가까운 구절과 그 미세 위치(offset) 찾기
+    const containerTop = source.scrollTop;
+    const verseElements = Array.from(source.querySelectorAll('.verse-item')) as HTMLDivElement[];
+    
+    let targetVerseNum: string | null = null;
+    let offsetFromTop = 0;
+    let sourceEl: HTMLDivElement | null = null;
+
+    for (const el of verseElements) {
+      // 해당 구절의 아랫부분이 컨테이너 상단보다 아래에 있으면 (즉, 현재 보이고 있으면)
+      if (el.offsetTop + el.offsetHeight > containerTop) {
+        targetVerseNum = el.getAttribute('data-verse');
+        sourceEl = el;
+        // 구절의 시작점이 상단으로부터 얼마나 떨어져 있는지 계산 (보통 음수거나 작은 양수)
+        offsetFromTop = el.offsetTop - containerTop;
+        break;
+      }
+    }
+
+    if (targetVerseNum && sourceEl) {
+      // 다른 모든 창들의 스크롤 위치를 픽셀 단위로 정밀하게 맞추기
+      scrollContainerRefs.current.forEach((target, j) => {
+        if (!target || j === idx) return;
+        
+        const targetEl = target.querySelector(`[data-verse="${targetVerseNum}"]`) as HTMLDivElement;
+        if (targetEl) {
+          // 타겟 창의 scrollTop = 타겟 구절의 위치 - 소스 창에서 유지하던 오프셋
+          target.scrollTop = targetEl.offsetTop - offsetFromTop;
+        }
+      });
+    }
+
+    // 다음 프레임에서 동기화 잠금 해제
+    requestAnimationFrame(() => {
+      isSyncingRef.current = false;
+    });
   };
 
   if (selectedVersions.length === 0) return null;
@@ -183,10 +255,11 @@ export const BibleViewer: React.FC<BibleViewerProps> = ({
             <span className="text-[10px] font-bold text-red-600 tracking-widest uppercase mr-2 bg-red-50 px-1.5 py-0.5 rounded">VER</span>
             <span className="text-xs font-bold text-slate-700 truncate">{data.name}</span>
           </div>
-
+  
           {/* Verses Scroll Area */}
           <div 
             ref={el => { scrollContainerRefs.current[idx] = el; }}
+            onScroll={(e) => handleScroll(idx, e)}
             className="flex-1 overflow-y-auto custom-scrollbar px-4 py-2 space-y-px pb-32"
           >
             {data.verses.length === 0 ? (
@@ -199,6 +272,7 @@ export const BibleViewer: React.FC<BibleViewerProps> = ({
                   key={`${v.bookId}-${v.chapter}-${v.verse}`}
                   verse={v}
                   isSelected={selectedVerses.has(v.verse)}
+                  isHighlighted={v.verse === highlightVerse}
                   fontSize={fontSize}
                   lineHeight={lineHeight}
                   onClick={toggleVerse}
@@ -242,4 +316,4 @@ export const BibleViewer: React.FC<BibleViewerProps> = ({
       </AnimatePresence>
     </div>
   );
-};
+});
