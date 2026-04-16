@@ -10,7 +10,7 @@ interface PdfItem {
 }
 
 export const MobilePdfLayout: React.FC = () => {
-  const [data, setData] = useState<{ title: string; items: PdfItem[] } | null>(null);
+  const [data, setData] = useState<{ title: string; items: PdfItem[]; footer?: string } | null>(null);
   const [imagesLoaded, setImagesLoaded] = useState(0);
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export const MobilePdfLayout: React.FC = () => {
 
           {/* Footer */}
           <div className="mt-4 pt-2 flex justify-center items-center text-[7px] font-bold text-slate-300 uppercase tracking-widest border-t border-slate-50">
-            <span>CEUM CCM MOBILE SERVICE 🕊️</span>
+            <span>{data.footer || 'CEUM CCM MOBILE SERVICE 🕊️'}</span>
           </div>
         </div>
       ))}

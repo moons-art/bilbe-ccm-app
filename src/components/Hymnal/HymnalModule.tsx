@@ -564,7 +564,7 @@ export const HymnalModule: React.FC = () => {
 
               {/* Viewer Main Body */}
               <div className="flex-1 flex overflow-hidden bg-slate-50/50">
-                <div className="flex-1 overflow-auto p-8 custom-scrollbar relative">
+                <div className="flex-1 overflow-auto p-8 custom-scrollbar relative min-w-[600px]">
                   {isEditing && (
                   <div className="mb-8 max-w-4xl mx-auto">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 pl-1">가사 편집</p>
@@ -600,11 +600,11 @@ export const HymnalModule: React.FC = () => {
                     <motion.div 
                       key="youtube-player"
                       initial={{ width: 0, opacity: 0 }}
-                      animate={{ width: "55vw", opacity: 1 }}
+                      animate={{ width: "55vw", minWidth: "125px", opacity: 1 }}
                       exit={{ width: 0, opacity: 0 }}
-                      className="h-full bg-white border-l border-slate-100 flex flex-col shadow-2xl relative z-30 shrink-0"
+                      className="h-full bg-white border-l border-slate-100 flex flex-col shadow-2xl relative z-30 shrink"
                     >
-                      <div className="w-[55vw] min-w-[500px] max-w-[900px] flex flex-col h-full overflow-hidden">
+                      <div className="w-full min-w-[125px] max-w-[900px] flex flex-col h-full overflow-hidden">
                         <div className="p-4 border-b border-slate-50 flex items-center justify-between bg-white shrink-0">
                           <div className="flex items-center gap-2">
                              <Youtube className="w-5 h-5 text-red-600" />

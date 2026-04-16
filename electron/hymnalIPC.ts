@@ -29,6 +29,7 @@ export interface HymnalLogic {
   deleteSong: (args: { songId: string, shouldDeleteOriginal: boolean }) => Promise<{ success: boolean; error?: string }>;
   openExternal: (url: string) => void;
   resizeWindow: (width: number, height: number) => void;
+  generateMobilePDF: (title: string, type: 'leader' | 'congregation', items: any[], onProgress?: (msg: string, percent: number) => void, footer?: string) => Promise<string>;
   seedInitialData: () => Promise<{ success: boolean; count?: number; error?: string }>;
 }
 
@@ -389,7 +390,7 @@ export function createHymnalLogic(win?: BrowserWindow): HymnalLogic {
         return { success: false, message: err.message };
       }
     },
-    async generateMobilePDF(title, type, items, onProgress) {
+    async generateMobilePDF(title, type, items, onProgress, footer) {
       try {
         if (!await gdrive.loadSavedCredentials()) throw new Error('Need Auth');
         
@@ -399,7 +400,7 @@ export function createHymnalLogic(win?: BrowserWindow): HymnalLogic {
           localFilePath: path.join(imagesDir, item.filename)
         }));
 
-        return await gdrive.generateMobilePDF(title, type, itemsWithPaths, onProgress);
+        return await gdrive.generateMobilePDF(title, type, itemsWithPaths, onProgress, footer);
       } catch (err: any) {
         console.error('[PDF] Error:', err);
         throw err;
@@ -599,11 +600,11 @@ export function registerHymnalIPC(win: BrowserWindow) {
   ipcMain.handle('hymnal:confirm-auth', (_, code) => logic.confirmAuth(code));
   ipcMain.handle('hymnal:sync-gdrive', (_, albumId) => logic.syncGDrive(albumId));
   ipcMain.handle('hymnal:generate-slides', (_, args) => logic.generateGoogleSlides(args, (msg, percent) => win.webContents.send('hymnal:slides-progress', { msg, percent })));
-  ipcMain.handle('hymnal:generate-pdf', async (_, { title, type, items }) => {
+  ipcMain.handle('hymnal:generate-pdf', async (_, { title, type, items, footer }) => {
     try {
       const url = await logic.generateMobilePDF(title, type, items, (msg, percent) => {
         win?.webContents.send('hymnal:pdf-progress', { msg, percent });
-      });
+      }, footer);
       return { success: true, url };
     } catch (err: any) {
       console.error('[PDF] IPC Error:', err);

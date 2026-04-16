@@ -36,7 +36,7 @@ async function C() {
 			nodeIntegration: !1
 		}
 	}), g.webContents.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-	let { registerHymnalIPC: t } = await import("./hymnalIPC-DoFh5nsz.js");
+	let { registerHymnalIPC: t } = await import("./hymnalIPC-tCeI8_gE.js");
 	t(g), f ? g.loadURL(f) : g.loadURL(`http://localhost:${b}/index.html`);
 }
 function w() {
@@ -201,7 +201,7 @@ function T() {
 	});
 }
 r.whenReady().then(async () => {
-	let { createHymnalLogic: e } = await import("./hymnalIPC-DoFh5nsz.js");
+	let { createHymnalLogic: e } = await import("./hymnalIPC-tCeI8_gE.js");
 	y = e(), await S(), await T(), w(), C();
 }), r.on("window-all-closed", () => {
 	process.platform;

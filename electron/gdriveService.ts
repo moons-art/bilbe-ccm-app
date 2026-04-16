@@ -22,6 +22,33 @@ export class GDriveService {
     this.tokenPath = path.join(appDataPath, 'gdrive-token.json');
   }
 
+  /**
+   * 구글 인증 관련 에러(invalid_grant 등)가 발생했을 때 
+   * 기존 토큰 파일을 삭제하여 세션을 초기화합니다.
+   */
+  private async handleAuthError(err: any) {
+    const errorMsg = err.message || '';
+    const isAuthError = 
+      errorMsg.includes('invalid_grant') || 
+      errorMsg.includes('No refresh token is set') ||
+      errorMsg.includes('Expired') ||
+      (err.code === 400 || err.code === 401);
+
+    if (isAuthError) {
+      console.warn('[GDrive] Auth error detected. Clearing tokens...', errorMsg);
+      try {
+        if (fs.existsSync(this.tokenPath)) {
+          fs.unlinkSync(this.tokenPath);
+        }
+        this.oauth2Client.setCredentials({}); // 메모리 상의 인증 정보도 초기화
+      } catch (e) {
+        console.error('[GDrive] Failed to clear token file:', e);
+      }
+      throw new Error('인증 정보가 만료되었습니다. 다시 로그인한 후 시도해 주세요.');
+    }
+    throw err;
+  }
+
   async getAuthUrl() {
     return this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
@@ -92,9 +119,10 @@ export class GDriveService {
   }
 
   async syncFiles(hymnalDirPath: string, albumId: string = 'all', albums: any[] = [], onProgress?: (data: any) => void) {
-    const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
-    
-    // 1. Base Folder 관리
+    try {
+      const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
+      
+      // 1. Base Folder 관리
     let rootFolderId = await this.findFolder(drive, 'CEUM_Hymnal_Data');
     if (!rootFolderId) {
       rootFolderId = await this.createFolder(drive, 'CEUM_Hymnal_Data');
@@ -215,6 +243,9 @@ export class GDriveService {
       skipped: skipCount,
       total: totalCount
     };
+    } catch (err) {
+      return await this.handleAuthError(err);
+    }
   }
 
   private async getOrCreateFolder(drive: any, name: string, parentId: string) {
@@ -315,8 +346,9 @@ export class GDriveService {
    * Slides 대비 세로형 가독성이 압도적이며 모바일에서 스크롤로 보기 편함
    */
   async generateGoogleDocs(title: string, type: 'leader' | 'congregation', items: any[], onProgress?: (msg: string, percent: number) => void) {
-    const docs = google.docs({ version: 'v1', auth: this.oauth2Client });
-    const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
+    try {
+      const docs = google.docs({ version: 'v1', auth: this.oauth2Client });
+      const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
 
     // 1. 임시 폴더 확보
     const parentFolderId = await this.ensureTempFolder(drive);
@@ -480,6 +512,9 @@ export class GDriveService {
 
     if (onProgress) onProgress('완료!', 100);
     return `https://docs.google.com/document/d/${documentId}/edit`;
+    } catch (err) {
+      return await this.handleAuthError(err);
+    }
   }
 
   private async cleanupTempFiles(drive: any, fileIds: string[]) {
@@ -539,8 +574,9 @@ export class GDriveService {
     items: any[], 
     onProgress?: (msg: string, percent: number) => void
   ): Promise<string> {
-    const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
-    const slides = google.slides({ version: 'v1', auth: this.oauth2Client });
+    try {
+      const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
+      const slides = google.slides({ version: 'v1', auth: this.oauth2Client });
 
     onProgress?.('임시 보관소 생성 중...', 5);
     
@@ -741,6 +777,9 @@ export class GDriveService {
 
     onProgress?.('생성 완료!', 100);
     return `https://docs.google.com/presentation/d/${presentationId}/view`;
+    } catch (err) {
+      return await this.handleAuthError(err);
+    }
   }
 
   /**
@@ -750,11 +789,13 @@ export class GDriveService {
     title: string, 
     type: 'leader' | 'congregation', 
     items: any[], 
-    onProgress?: (msg: string, percent: number) => void
+    onProgress?: (msg: string, percent: number) => void,
+    footer?: string
   ): Promise<string> {
-    const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
+    try {
+      const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
 
-    onProgress?.('PDF 엔진 초기화 중...', 10);
+      onProgress?.('PDF 엔진 초기화 중...', 10);
 
     // 1. PDF 에셋 폴더 확보
     let folderId = await this.findFolder(drive, 'CEUM_PDF_Library');
@@ -763,7 +804,7 @@ export class GDriveService {
     onProgress?.('데이터 렌더링 준비 중...', 20);
 
     // 2. 렌더링을 위한 데이터 인코딩
-    const pdfData = { title, items };
+    const pdfData = { title, items, footer };
     const encodedData = encodeURIComponent(JSON.stringify(pdfData));
     
     // 개발 서버 또는 로컬 서버 URL 결정
@@ -834,6 +875,9 @@ export class GDriveService {
 
     } finally {
       printWin.close();
+    }
+    } catch (err) {
+      return await this.handleAuthError(err);
     }
   }
 }

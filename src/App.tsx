@@ -47,7 +47,8 @@ const BibleNavBar: React.FC<BibleNavBarProps> = ({
     if (query.trim()) {
       const success = onQuickNav(query);
       if (success) {
-        setLocalQuery('');
+        // ✅ 사용자 요청: 입력 유지 (비우지 않음)
+        // setLocalQuery(''); 
         return true;
       }
     }
@@ -60,7 +61,8 @@ const BibleNavBar: React.FC<BibleNavBarProps> = ({
     
     // ✅ 사용자 요청: 엔터를 안쳐도 유효한 패턴(마 1 등)이면 즉시 이동
     const trimmed = val.trim();
-    const navPattern = /^([1-3]?[가-힣a-zA-Z]+)\s*(\d+)$/; // "마 1" 같은 형식을 실시간으로 감지
+    // ✅ 보강된 패턴: "창 1" 또는 "창1" 등을 인식 (절이 있어도 장까지만 우선 감지)
+    const navPattern = /^([1-3]?[가-힣]{1,3})\s*(\d+)/; 
     if (navPattern.test(trimmed)) {
       handleSearch(trimmed);
     }
@@ -193,16 +195,21 @@ const SearchInput = React.memo<{
   className: string;
 }>(({ value, onChange, placeholder, className }) => {
   const [localValue, setLocalValue] = React.useState(value);
+  const lastSentValue = React.useRef(value);
 
   // 외부(전역) 값이 바뀌면 로컬 값도 동기화 (검색결과 클릭 이동 등 대비)
   React.useEffect(() => {
-    setLocalValue(value);
+    if (value !== lastSentValue.current) {
+      setLocalValue(value);
+      lastSentValue.current = value;
+    }
   }, [value]);
 
   // 입력이 멈추면 전역 상태로 전달 (0.2초 디바운싱)
   React.useEffect(() => {
     const timer = setTimeout(() => {
       if (localValue !== value) {
+        lastSentValue.current = localValue;
         onChange(localValue);
       }
     }, 200);
@@ -325,10 +332,8 @@ const MainApp: React.FC = () => {
   // 퀵 서치 처리 로직 (마 1:1 등)
   const handleQuickNav = (query: string, side: 'left' | 'right') => {
     const trimmed = query.trim();
-    // 1. 권만 패턴 (예: "마")
-    // 2. 권 장 패턴 (예: "마 1")
-    // 3. 권 장 절 패턴 (예: "마 1:5")
-    const navPattern = /^([1-3]?[가-힣a-zA-Z]+)(?:\s*(\d+))?(?:[:：.\s](\d+))?$/;
+    // 1-3. 보강된 만능 패턴 (창1, 창 1, 창 1:1, 창 1 1, 창1 1 모두 지원)
+    const navPattern = /^([1-3]?[가-힣]{1,3})\s*(\d+)(?:[ :.\s]+(\d+))?$/;
     const match = trimmed.match(navPattern);
 
     if (match) {
@@ -361,8 +366,8 @@ const MainApp: React.FC = () => {
   React.useEffect(() => {
     const timer = setTimeout(() => {
       const trimmed = searchQuery.trim();
-      // 내비게이션 패턴은 사이드바 검색 엔진에서 제외
-      const isNavPattern = /^([1-3]?[가-힣a-zA-Z]+)\s*(\d+)(?:[:：.\s](\d+))?$/.test(trimmed);
+      // 내비게이션 패턴(창 1:1 등)은 검색 작업에서 제외하여 성능 확보
+      const isNavPattern = /^([1-3]?[가-힣]{1,3})\s*(\d+)(?:[ :.\s]+(\d+))?$/.test(trimmed);
       
       if (!isNavPattern && trimmed.length >= 2) {
         const normalizedQuery = trimmed.normalize('NFC');

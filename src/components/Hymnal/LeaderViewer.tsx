@@ -17,6 +17,16 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
   const [genProgress, setGenProgress] = useState({ msg: '', percent: 0 });
   const [genResultUrl, setGenResultUrl] = useState<string | null>(null); // 생성 결과 URL 저장
   
+  // 공동체 명칭 상태: localStorage에서 읽어오고 없으면 기본값 사용
+  const [communityName, setCommunityName] = useState(() => {
+    return localStorage.getItem('ceum-community-name') || '세움CHURCH';
+  });
+
+  // 명칭 변경 시 localStorage에 즉시 저장
+  useEffect(() => {
+    localStorage.setItem('ceum-community-name', communityName);
+  }, [communityName]);
+  
   // 인도자용 뷰어에 표시할 항목 (화면에 배치된 항목들만)
   const visibleItems = contiItems.filter(item => item.isVisible);
   
@@ -82,12 +92,15 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
       const result = await hymnalApi.generatePDF({
         title: contiTitle || '새 찬양 콘티',
         type,
-        items: itemsToGenerate
+        items: itemsToGenerate,
+        footer: communityName // 공동체 명칭 전달
       });
 
       if (result.success && result.url) {
         setIsGenerating(false); 
-        hymnalApi.writeClipboard(result.url);
+        // 사용자 요청 형식 반영: [콘티제목] 악보보기 링크
+        const shareText = `[${contiTitle || '새 찬양 콘티'}] 악보보기 링크\n${result.url}`;
+        hymnalApi.writeClipboard(shareText);
         setGenResultUrl(result.url); // 결과 URL 세팅 (자동으로 완료 UI 노출)
       } else if (result.message === 'Need Auth') {
         setIsGenerating(false);
@@ -173,7 +186,19 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
             )}
 
             {/* 모바일 PDF 생성 버튼 (인도자용 / 회중용 분리) */}
-            <div className="flex bg-black/40 backdrop-blur-md rounded-xl p-1 shadow-lg border border-white/5">
+            <div className="flex items-center bg-black/40 backdrop-blur-md rounded-xl p-1.5 shadow-lg border border-white/10 group">
+              {/* 공동체 명칭 입력칸 - 글자 크기 및 가독성 강화 */}
+              <div className="flex items-center px-4 gap-3 border-r border-white/10">
+                <span className="text-[11px] font-black text-indigo-400 uppercase tracking-tight group-focus-within:text-white transition-colors">공동체 명칭 수정 :</span>
+                <input 
+                  type="text"
+                  value={communityName}
+                  onChange={(e) => setCommunityName(e.target.value)}
+                  placeholder="공동체 명칭..."
+                  className="bg-transparent border-none text-[12px] font-black text-white focus:outline-none w-32 placeholder:text-white/20"
+                />
+              </div>
+              
               <button
                 onClick={() => handleGeneratePDF('leader')}
                 disabled={isGenerating}
@@ -355,7 +380,7 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
               <h3 className="text-2xl font-black text-white mb-2">생성 완료!</h3>
               <p className="text-white/60 text-sm leading-relaxed mb-6">
                 프리미엄 모바일 PDF가 구글 드라이브에 안전하게 저장되었습니다.<br/>
-                <span className="text-emerald-400 font-bold">링크가 클립보드에 복사되었습니다.</span>
+                <span className="text-emerald-400 font-bold">[{contiTitle || '콘티'}] 링크가 복사되었습니다.</span>
               </p>
 
               {/* 링크 주소 표시 영역 */}
@@ -366,8 +391,9 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
                 </p>
                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 rounded-xl cursor-pointer"
                      onClick={() => {
-                        hymnalApi.writeClipboard(genResultUrl!);
-                        alert('링크가 다시 복사되었습니다.');
+                        const shareText = `[${contiTitle || '새 찬양 콘티'}] 악보보기 링크\n${genResultUrl}`;
+                        hymnalApi.writeClipboard(shareText);
+                        alert('안내문과 링크가 다시 복사되었습니다.');
                      }}>
                   <span className="text-[10px] text-white font-bold">다시 복사하기</span>
                 </div>
