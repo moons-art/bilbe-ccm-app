@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BibleProvider } from './stores/BibleProvider';
 import { useBible } from './stores/BibleContext';
 import { HymnalProvider, useHymnal } from './stores/HymnalProvider';
@@ -7,13 +7,53 @@ import { BibleViewer } from './components/BibleViewer';
 import { HymnalModule } from './components/Hymnal/HymnalModule';
 import { HymnalSidebar } from './components/Hymnal/HymnalSidebar';
 import { ContiEditor } from './components/Hymnal/ContiEditor';
-import { Menu, Search, BookOpen, Settings, X, Plus, Check, ChevronLeft, ChevronRight, ChevronDown, Trash2, Edit2, Type, AlignLeft, Music } from 'lucide-react';
+import { Menu, Search, BookOpen, Settings, X, Plus, Check, ChevronLeft, ChevronRight, ChevronDown, Trash2, Edit2, Type, AlignLeft, Music, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { searchService, type SearchRange } from './services/searchService';
 import { BIBLE_BOOKS, BIBLE_LIST } from './constants/bibleMeta';
 import { initGoogleApi } from './api/gdriveWebService';
 
 import { MobilePdfLayout } from './components/Hymnal/MobilePdfLayout';
+
+// --- Tooltip Guide Helper Component ---
+const TooltipIcon = ({ text }: { text: string }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, []);
+
+  return (
+    <div 
+      ref={containerRef}
+      className="relative inline-block ml-1" 
+      onClick={e => {
+        e.stopPropagation();
+        setIsOpen(!isOpen);
+      }}
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      <HelpCircle className={`w-3.5 h-3.5 transition-colors cursor-help ${isOpen ? 'text-red-500' : 'text-slate-400 hover:text-red-500'}`} />
+      <div className={`fixed bottom-[140px] left-4 w-[240px] p-3 bg-slate-800 text-white text-[11px] font-bold leading-relaxed rounded-xl transition-all duration-200 shadow-2xl text-left whitespace-pre-wrap z-[100] ${
+        isOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none'
+      }`}>
+        {text}
+      </div>
+    </div>
+  );
+};
 
 // --- Bible Navigation Bar Component ---
 interface BibleNavBarProps {
@@ -271,6 +311,28 @@ const MainApp: React.FC = () => {
   const [fontSize, setFontSize] = useState(16);
   const [searchFontSize, setSearchFontSize] = useState(14); // ✅ 검색결과용 글자 크기 상태
   const [currentTab, setCurrentTab] = useState<'bible' | 'hymnal'>('bible');
+
+  // ✅ 로컬 캐시 용량 상태 및 실시간 갱신 함수
+  const [cacheSize, setCacheSize] = useState<string>('계산 중...');
+  const updateCacheSize = async () => {
+    try {
+      if (navigator.storage && navigator.storage.estimate) {
+        const estimate = await navigator.storage.estimate();
+        const usageMB = ((estimate.usage || 0) / (1024 * 1024)).toFixed(2);
+        setCacheSize(`${usageMB} MB`);
+      } else {
+        setCacheSize('지원 불가 (브라우저 제한)');
+      }
+    } catch (e) {
+      setCacheSize('계산 실패');
+    }
+  };
+
+  useEffect(() => {
+    if (showSettings) {
+      updateCacheSize();
+    }
+  }, [showSettings]);
   
   // Editing State
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
@@ -468,10 +530,12 @@ const MainApp: React.FC = () => {
                     setIsAuthenticated(true);
                     window.dispatchEvent(new Event('gdrive_authenticated'));
                   }, 500);
+                } else {
+                  alert('로그인 실패: 구글 인증이 완료되지 않았습니다.');
                 }
-              } catch (e) {
-                console.error(e);
-                alert('로그인에 실패했습니다.');
+              } catch (e: any) {
+                console.error('[Login Fail]', e);
+                alert('로그인 처리 중 오류가 발생했습니다.\n상세 정보: ' + (e?.message || e));
               } finally {
                 setIsSyncing(false);
               }
@@ -526,7 +590,10 @@ const MainApp: React.FC = () => {
                   <div className="space-y-6">
                     <div>
                       <div className="flex items-center justify-between mb-3 px-2">
-                        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">번역본 목록</h2>
+                        <div className="flex items-center">
+                          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">번역본 목록</h2>
+                          <TooltipIcon text="번역본을 업로드 하면 구글드라이브에 저장되어 사용자가 로그인하면 항상 표시 됩니다." />
+                        </div>
                         <div className="flex items-center gap-1">
                           {versions.length > 0 && (
                             <button 
@@ -1221,6 +1288,36 @@ const MainApp: React.FC = () => {
                   <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                     <div className="p-5 bg-red-50 rounded-2xl border border-red-100">
                       <p className="text-xs font-bold text-red-800 leading-relaxed">목사님의 사역이 이 도구를 통해 더욱 풍성해지길 기도합니다. 🕊️🙏</p>
+                    </div>
+
+                    {/* 로컬 캐시 관리 섹션 */}
+                    <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200">
+                      <div className="flex justify-between items-center mb-3">
+                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">로컬 캐시 관리</h4>
+                        <span className="text-[11px] font-black text-indigo-600 bg-indigo-50 border border-indigo-100/50 px-2.5 py-1 rounded-lg">
+                          현재 로컬 캐쉬 용량: {cacheSize}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
+                        해당 앱은 모든 악보를 구글 드라이브에 저장하여 불러옵니다. 빠른 앱의 구동을 위해 한번 읽은 악보는 기기의 캐쉬에 저장됩니다. 기기의 저장 공간을 확보하고 싶을때 로컬캐시 관리를 실행하여 삭제 하십시오. 구글 드라이브의 원본악보와 앱의 모든 앨범과 설정은 삭제되지 않고 안전하게 보호 됩니다.
+                      </p>
+                      <button
+                        onClick={async () => {
+                          if (confirm('기기에 저장된 모든 악보 캐시를 삭제하시겠습니까? \n삭제 후 악보를 열 때 구글 드라이브에서 다시 새로 다운로드합니다.')) {
+                            try {
+                              const { imageCache } = await import('./utils/imageCache');
+                              await imageCache.clearCache();
+                              alert('로컬 악보 캐시가 성공적으로 삭제되었습니다.');
+                              updateCacheSize(); // 삭제 즉시 실시간 갱신
+                            } catch (e: any) {
+                              alert('캐시 삭제 중 오류 발생: ' + e.message);
+                            }
+                          }
+                        }}
+                        className="px-4 py-2.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl text-xs font-bold transition-all border border-red-100 shadow-sm"
+                      >
+                        로컬 악보 캐시 지우기
+                      </button>
                     </div>
 
                     <div className="space-y-6">

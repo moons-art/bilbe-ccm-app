@@ -397,7 +397,12 @@ const PageContent: React.FC<{
           <DraggableContiItem 
             key={item.id}
             item={item}
-            song={songs.find(s => s.id === item.songId)}
+            song={songs.find(s => {
+              if (!s || !s.id || !item.songId) return false;
+              const sId = s.id.toString();
+              const tId = item.songId.toString();
+              return sId === tId || (s.fileId && s.fileId.toString() === tId) || tId.endsWith('-' + sId) || sId.endsWith('-' + tId);
+            })}
             isSelected={activeItemId === item.id}
             canvasWidth={canvasWidth}
             canvasHeight={canvasHeight}
@@ -442,7 +447,12 @@ export const ContiEditor: React.FC = () => {
   const canvasHeight = isLandscape ? (paperSize === 'A4' ? 794 : 1123) : (paperSize === 'A4' ? 1123 : 1587);
 
   const editingItem = contiItems.find(i => i.id === cropEditingId);
-  const editingSong = editingItem ? songs.find(s => s.id === editingItem.songId) : null;
+  const editingSong = editingItem ? songs.find(s => {
+    if (!s || !s.id || !editingItem.songId) return false;
+    const sId = s.id.toString();
+    const tId = editingItem.songId.toString();
+    return sId === tId || (s.fileId && s.fileId.toString() === tId) || tId.endsWith('-' + sId) || sId.endsWith('-' + tId);
+  }) : null;
 
   const handleAddExternalFile = async () => {
     try {
@@ -553,78 +563,89 @@ export const ContiEditor: React.FC = () => {
         </AnimatePresence>
 
         <div className={`bg-white border-b border-slate-200 z-50 no-print transition-all duration-300 shadow-sm ${isPreviewMode ? '-translate-y-full absolute w-full' : 'relative'}`}>
-          <div className="h-16 px-6 flex items-center justify-between border-b border-slate-100/50">
-            <div className="flex items-center gap-5">
-              <button onClick={() => setIsEditorOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors"><ChevronLeft className="w-6 h-6" /></button>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100"><Layout className="w-5 h-5 text-white" /></div>
-                <div><h1 className="text-sm font-black text-slate-900 leading-none">콘티 에디터</h1></div>
+          {/* 1층: h-16 고정을 풀고 반응형 flex-wrap 및 패딩 조절 */}
+          <div className="min-h-16 py-3 px-4 sm:px-6 flex flex-wrap items-center justify-between gap-4 border-b border-slate-100/50">
+            <div className="flex items-center gap-3 sm:gap-5">
+              <button onClick={() => setIsEditorOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100"><Layout className="w-4 h-4 sm:w-5 sm:h-5 text-white" /></div>
+                <div><h1 className="text-xs sm:text-sm font-black text-slate-900 leading-none">콘티 에디터</h1></div>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 group transition-all focus-within:ring-2 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/50">
+            {/* 조작 영역: flex-wrap 적용 */}
+            <div className="flex items-center flex-wrap gap-2 sm:gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 bg-slate-50 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-slate-100 group transition-all focus-within:ring-2 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/50">
                 <input 
                   type="text" value={localTitle} 
                   onChange={(e) => setLocalTitle(e.target.value)}
                   onBlur={() => setContiTitle(localTitle)}
                   onKeyDown={(e) => e.key === 'Enter' && setContiTitle(localTitle)}
-                  placeholder="콘티 제목 입력..." className="bg-transparent font-bold text-sm text-slate-900 focus:outline-none w-48"
+                  placeholder="콘티 제목 입력..." className="bg-transparent font-bold text-xs sm:text-sm text-slate-900 focus:outline-none w-32 sm:w-48"
                 />
-                <div className="w-px h-4 bg-slate-200" />
-                <SmoothSlider 
-                  label="T-Size"
-                  min={20} max={100}
-                  value={contiTitleFontSize}
-                  onChange={setContiTitleFontSize}
-                />
+                <div className="w-px h-4 bg-slate-200 hidden sm:block" />
+                <div className="hidden sm:block">
+                  <SmoothSlider 
+                    label="T-Size"
+                    min={20} max={100}
+                    value={contiTitleFontSize}
+                    onChange={setContiTitleFontSize}
+                  />
+                </div>
               </div>
 
-              <div className="w-px h-6 bg-slate-200 mx-1" />
+              <div className="w-px h-6 bg-slate-200 mx-1 hidden sm:block" />
 
-              <button disabled={isUploading} onClick={handleAddExternalFile} className={`px-4 py-2 rounded-lg text-xs font-black text-slate-600 flex items-center gap-2 transition-all border border-slate-200 shadow-sm active:scale-95 ${isUploading ? 'bg-slate-100 opacity-50 cursor-not-allowed' : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'}`}>
-                <ImagePlus className="w-4 h-4" /> {isUploading ? '업로드 중...' : '사진/파일 직접 추가'}
+              <button disabled={isUploading} onClick={handleAddExternalFile} className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-xs font-black text-slate-600 flex items-center gap-1.5 sm:gap-2 transition-all border border-slate-200 shadow-sm active:scale-95 ${isUploading ? 'bg-slate-100 opacity-50 cursor-not-allowed' : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'}`}>
+                <ImagePlus className="w-3.5 h-3.5" /> {isUploading ? '업로드 중...' : '사진 직접 추가'}
               </button>
 
-              <button onClick={() => setIsLibraryOpen(true)} className="px-4 py-2 bg-white hover:bg-slate-50 rounded-lg text-xs font-black text-slate-600 flex items-center gap-2 transition-all border border-slate-200 shadow-sm active:scale-95">
-                <Library className="w-4 h-4 text-slate-400" /> 저장소
+              <button onClick={() => setIsLibraryOpen(true)} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white hover:bg-slate-50 rounded-lg text-[10px] sm:text-xs font-black text-slate-600 flex items-center gap-1.5 sm:gap-2 transition-all border border-slate-200 shadow-sm active:scale-95">
+                <Library className="w-3.5 h-3.5 text-slate-400" /> 저장소
               </button>
 
-              <button onClick={() => saveCurrentConti()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-xs font-black text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-100 active:scale-95">
-                <Save className="w-4 h-4" /> 저장하기
+              <button onClick={() => saveCurrentConti()} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-[10px] sm:text-xs font-black text-white flex items-center gap-1.5 sm:gap-2 transition-all shadow-lg shadow-indigo-100 active:scale-95">
+                <Save className="w-3.5 h-3.5" /> 저장하기
               </button>
             </div>
           </div>
 
-          <div className="h-14 px-6 flex items-center justify-between bg-slate-50/30">
-            <div className="flex items-center gap-2">
-              <button onClick={() => setShowContiNumbers(!showContiNumbers)} className={`px-4 py-2 rounded-lg text-[11px] font-black flex items-center gap-2 transition-all border ${showContiNumbers ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>
-                <Hash className="w-3.5 h-3.5" /> 순번 표시 {showContiNumbers ? 'ON' : 'OFF'}
+          {/* 2층: h-14 고정을 풀고 flex-wrap 및 패딩 조절 */}
+          <div className="min-h-14 py-2.5 px-4 sm:px-6 flex flex-wrap items-center justify-between gap-3 bg-slate-50/30">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <button onClick={() => setShowContiNumbers(!showContiNumbers)} className={`px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-[11px] font-black flex items-center gap-1.5 transition-all border ${showContiNumbers ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>
+                <Hash className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 순번 {showContiNumbers ? 'ON' : 'OFF'}
               </button>
-              <div className="w-px h-4 bg-slate-200 mx-1" />
-              <div className="flex bg-white p-1 rounded-lg border border-slate-200">
-                <button onClick={() => setOrientation('portrait')} className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${!isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>세로</button>
-                <button onClick={() => setOrientation('landscape')} className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>가로</button>
+              <div className="w-px h-4 bg-slate-200 mx-0.5 hidden sm:block" />
+              <div className="flex bg-white p-0.5 sm:p-1 rounded-lg border border-slate-200 shrink-0">
+                <button onClick={() => setOrientation('portrait')} className={`px-2 py-1 sm:px-3 sm:py-1.5 rounded-md text-[9px] sm:text-[10px] font-black transition-all ${!isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>세로</button>
+                <button onClick={() => setOrientation('landscape')} className={`px-2 py-1 sm:px-3 sm:py-1.5 rounded-md text-[9px] sm:text-[10px] font-black transition-all ${isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>가로</button>
               </div>
-              <div className="flex bg-white p-1 rounded-lg border border-slate-200">
-                <button onClick={() => setPaperSize('A4')} className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${paperSize === 'A4' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>A4</button>
-                <button onClick={() => setPaperSize('A3')} className={`px-3 py-1.5 rounded-md text-[10px] font-black transition-all ${paperSize === 'A3' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>A3</button>
+              <div className="flex bg-white p-0.5 sm:p-1 rounded-lg border border-slate-200 shrink-0">
+                <button onClick={() => setPaperSize('A4')} className={`px-2 py-1 sm:px-3 sm:py-1.5 rounded-md text-[9px] sm:text-[10px] font-black transition-all ${paperSize === 'A4' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>A4</button>
+                <button onClick={() => setPaperSize('A3')} className={`px-2 py-1 sm:px-3 sm:py-1.5 rounded-md text-[9px] sm:text-[10px] font-black transition-all ${paperSize === 'A3' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>A3</button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setIsLeaderViewerOpen(true)} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 rounded-lg text-[11px] font-black text-white shadow-lg flex items-center gap-2 transition-all active:scale-95"><Layout className="w-3.5 h-3.5" /> 인도자용 뷰어</button>
-              <button onClick={() => setIsPreviewMode(true)} className="px-4 py-2 bg-slate-800 hover:bg-slate-900 rounded-lg text-[11px] font-black text-white shadow-lg flex items-center gap-2 transition-all active:scale-95"><Search className="w-3.5 h-3.5" /> 미리보기</button>
-              <button onClick={clearConti} className="p-2 bg-white text-slate-400 hover:text-red-500 rounded-lg border border-slate-200 transition-all flex items-center gap-2 text-[11px] font-black px-4"><RotateCcw className="w-4 h-4" /> 비우기</button>
-              <div className="w-px h-6 bg-slate-200 mx-1" />
-              <button onClick={() => window.print()} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-black shadow-lg transition-all active:scale-95">인쇄하기</button>
-              <button onClick={() => { if (contiItems.length > 0 && !confirm('변경사항이 저장되지 않을 수 있습니다.')) return; setIsEditorOpen(false); }} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[11px] font-black flex items-center gap-2 border border-slate-200 transition-all"><DoorOpen className="w-3.5 h-3.5" /> 취소</button>
+            
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <button onClick={() => setIsLeaderViewerOpen(true)} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-amber-500 hover:bg-amber-600 rounded-lg text-[10px] sm:text-[11px] font-black text-white shadow-lg flex items-center gap-1.5 transition-all active:scale-95"><Layout className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 뷰어</button>
+              <button onClick={() => setIsPreviewMode(true)} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-slate-900 rounded-lg text-[10px] sm:text-[11px] font-black text-white shadow-lg flex items-center gap-1.5 transition-all active:scale-95"><Search className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 미리보기</button>
+              <button onClick={clearConti} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white text-slate-400 hover:text-red-500 rounded-lg border border-slate-200 transition-all flex items-center gap-1.5 text-[10px] sm:text-[11px] font-black"><RotateCcw className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 비우기</button>
+              <div className="w-px h-6 bg-slate-200 mx-0.5 hidden sm:block" />
+              <button onClick={() => window.print()} className="px-4 py-1.5 sm:px-5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] sm:text-[11px] font-black shadow-lg transition-all active:scale-95">인쇄</button>
+              <button onClick={() => { if (contiItems.length > 0 && !confirm('변경사항이 저장되지 않을 수 있습니다.')) return; setIsEditorOpen(false); }} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] sm:text-[11px] font-black flex items-center gap-1.5 border border-slate-200 transition-all"><DoorOpen className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 취소</button>
             </div>
           </div>
         </div>
 
         <Reorder.Group axis="x" values={contiItems} onReorder={reorderContiItems} className={`bg-white border-b border-slate-100 px-6 py-4 flex items-center gap-4 overflow-x-auto custom-scrollbar no-print transition-all duration-300 ${isPreviewMode ? 'opacity-0 h-0 p-0 pointer-events-none' : 'opacity-100 h-auto'}`}>
            {contiItems.filter(item => !item.isVisible || item.page === 1).map((item, idx) => {
-                const song = songs.find(s => s.id === item.songId);
+                const song = songs.find(s => {
+                  if (!s || !s.id || !item.songId) return false;
+                  const sId = s.id.toString();
+                  const tId = item.songId.toString();
+                  return sId === tId || (s.fileId && s.fileId.toString() === tId) || tId.endsWith('-' + sId) || sId.endsWith('-' + tId);
+                });
                 const isAssignedToThisPage = item.isVisible && item.page === 1;
                 return (
                   <Reorder.Item key={item.id} value={item} layout transition={{ type: "spring", stiffness: 700, damping: 40, mass: 0.8 }} className={`flex items-center gap-1 pl-2 pr-5 py-2.5 rounded-2xl border-2 shrink-0 select-none ${isAssignedToThisPage ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : (item.isVisible ? 'opacity-30 border-slate-200 pointer-events-none' : 'bg-slate-50 border-slate-100 text-slate-500')}`}>

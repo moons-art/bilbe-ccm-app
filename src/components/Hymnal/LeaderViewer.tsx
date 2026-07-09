@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import type { ContiItem } from '../../stores/HymnalProvider';
 import { useHymnal } from '../../stores/HymnalProvider';
 import { hymnalApi } from '../../api/hymnalApi';
-import { X, ChevronLeft, ChevronRight, Library, StickyNote, Monitor, Users, FileText, Loader2, Share2, Check } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Library, StickyNote, Monitor, Users, FileText, Loader2, Share2, Check, Download, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface LeaderViewerProps {
@@ -16,6 +16,8 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
   const [isGenerating, setIsGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState({ msg: '', percent: 0 });
   const [genResultUrl, setGenResultUrl] = useState<string | null>(null); // 생성 결과 URL 저장
+  const [genFileId, setGenFileId] = useState<string | null>(null); // 생성 결과 파일 ID 저장
+  const [showMenuBar, setShowMenuBar] = useState(true); // 상단 메뉴 노출 여부 상태 추가
   
   // 공동체 명칭 상태: localStorage에서 읽어오고 없으면 기본값 사용
   const [communityName, setCommunityName] = useState(() => {
@@ -80,10 +82,19 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
 
     try {
       const itemsToGenerate = visibleItems.map(item => {
-        const song = songs.find(s => s.id === item.songId);
+        const song = songs.find(s => {
+          if (!s || !s.id || !item.songId) return false;
+          const sId = s.id.toString();
+          const tId = item.songId.toString();
+          return sId === tId || (s.fileId && s.fileId.toString() === tId) || tId.endsWith('-' + sId) || sId.endsWith('-' + tId);
+        });
         return {
           id: item.id,
+          songId: item.songId, // songId 매핑 추가
           filename: song?.filename || '',
+          crop: item.crop,     // 크롭 영역 누락 복원
+          page: item.page,     // 페이지 번호 복원
+          isVisible: item.isVisible,
           // 회중용일 경우 멘트(비고)를 제거하여 생성
           memo: type === 'congregation' ? '' : item.memo,
           memoFontSize: item.memoFontSize || 12,
@@ -94,6 +105,7 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
         title: contiTitle || '새 찬양 콘티',
         type,
         items: itemsToGenerate,
+        songs, // 현재 로드된 곡 목록 인입
         footer: communityName // 공동체 명칭 전달
       });
 
@@ -102,6 +114,7 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
         // 사용자 요청 형식 반영: [콘티제목] 악보보기 링크
         const shareText = `[${contiTitle || '새 찬양 콘티'}] 악보보기 링크\n${result.url}`;
         hymnalApi.writeClipboard(shareText);
+        setGenFileId(result.fileId || null);
         setGenResultUrl(result.url); // 결과 URL 세팅 (자동으로 완료 UI 노출)
       } else if (result.message === 'Need Auth') {
         setIsGenerating(false);
@@ -140,7 +153,12 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
 
   const safeIndex = currentIndex >= visibleItems.length ? Math.max(0, visibleItems.length - 1) : currentIndex;
   const currentItem = visibleItems[safeIndex];
-  const currentSong = songs.find(s => s.id === currentItem.songId);
+  const currentSong = songs.find(s => {
+    if (!s || !s.id || !currentItem.songId) return false;
+    const sId = s.id.toString();
+    const tId = currentItem.songId.toString();
+    return sId === tId || (s.fileId && s.fileId.toString() === tId) || tId.endsWith('-' + sId) || sId.endsWith('-' + tId);
+  });
   const crop = currentItem.crop || { top: 0, bottom: 0, left: 0, right: 0 };
   const visibleWidthFactor = (100 - crop.left - crop.right) / 100;
   const visibleHeightFactor = (100 - crop.top - crop.bottom) / 100;
@@ -171,83 +189,121 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
         className="fixed inset-0 z-[10000] bg-zinc-950 flex flex-col overflow-hidden text-white"
       >
         {/* 뷰어 컨트롤 바 (오버레이) */}
-        <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 flex items-center justify-between z-50 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
-          <div className="flex items-center gap-4 pointer-events-auto">
-            <button 
-              onClick={onClose}
-              className="p-2 bg-black/40 hover:bg-black/60 rounded-full backdrop-blur-md transition-colors"
+        <AnimatePresence>
+          {showMenuBar && (
+            <motion.div
+              initial={{ y: -100, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -100, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="absolute top-0 left-0 right-0 p-4 sm:p-5 flex flex-col gap-2.5 z-50 bg-gradient-to-b from-black/95 to-transparent pointer-events-none"
             >
-              <X className="w-6 h-6 text-white" />
-            </button>
-            <div className="flex flex-col">
-              <h2 className="text-lg font-black tracking-tight drop-shadow-md">
-                {currentSong?.title}
-              </h2>
-              <span className="text-xs text-white/70 font-bold">
-                {currentIndex + 1} / {visibleItems.length}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 pointer-events-auto">
-            {onOpenLibrary && (
-              <button
-                onClick={onOpenLibrary}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600/80 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition-all backdrop-blur-md shadow-lg"
-              >
-                <Library className="w-4 h-4" />
-                <span className="hidden sm:inline">저장소 불러오기</span>
-              </button>
-            )}
-
-            {/* 모바일 PDF 생성 버튼 (인도자용 / 회중용 분리) */}
-            <div className="flex items-center bg-black/40 backdrop-blur-md rounded-xl p-1.5 shadow-lg border border-white/10 group">
-              {/* 공동체 명칭 입력칸 - 글자 크기 및 가독성 강화 */}
-              <div className="flex items-center px-4 gap-3 border-r border-white/10">
-                <span className="text-[11px] font-black text-indigo-400 uppercase tracking-tight group-focus-within:text-white transition-colors">공동체 명칭 수정 :</span>
-                <input 
-                  type="text"
-                  value={communityName}
-                  onChange={(e) => setCommunityName(e.target.value)}
-                  placeholder="공동체 명칭..."
-                  className="bg-transparent border-none text-[12px] font-black text-white focus:outline-none w-32 placeholder:text-white/20"
-                />
+              {/* 1층: 닫기 버튼 및 우측 조작 제어 버튼 라인 */}
+              <div className="flex items-center justify-between w-full">
+                <div className="pointer-events-auto">
+                  <button 
+                    onClick={onClose}
+                    className="p-2 bg-black/40 hover:bg-black/60 rounded-full backdrop-blur-md transition-colors"
+                  >
+                    <X className="w-6 h-6 text-white" />
+                  </button>
+                </div>
               </div>
-              
-              <button
-                onClick={() => handleGeneratePDF('leader')}
-                disabled={isGenerating}
-                className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/10 text-white/90 rounded-lg text-xs font-bold transition-all"
-                title="멘트가 포함된 인도자용 PDF 생성"
-              >
-                <FileText className="w-3.5 h-3.5 text-red-400" />
-                <span>PDF(인도자)</span>
-              </button>
-              <div className="w-[1px] bg-white/10 mx-1 self-stretch" />
-              <button
-                onClick={() => handleGeneratePDF('congregation')}
-                disabled={isGenerating}
-                className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/10 text-white/90 rounded-lg text-xs font-bold transition-all"
-                title="악보만 있는 회중용 PDF 생성"
-              >
-                <Users className="w-3.5 h-3.5 text-emerald-400" />
-                <span>PDF(회중)</span>
-              </button>
-            </div>
 
-            <button
-              onClick={() => setShowMemo(!showMemo)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all backdrop-blur-md shadow-lg
-                ${showMemo 
-                  ? 'bg-amber-500 hover:bg-amber-400 text-white shadow-amber-500/20' 
-                  : 'bg-white/10 hover:bg-white/20 text-white/50'
-                }`}
-            >
-              <StickyNote className={`w-4 h-4 ${!showMemo ? 'opacity-50' : ''}`} />
-              <span className="hidden sm:inline">멘트 {showMemo ? 'ON' : 'OFF'}</span>
-            </button>
-          </div>
-        </div>
+              <div className="flex items-center gap-2 sm:gap-3 pointer-events-auto flex-nowrap shrink-0">
+                {onOpenLibrary && (
+                  <button
+                    onClick={onOpenLibrary}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600/80 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all backdrop-blur-md shadow-lg shrink-0"
+                  >
+                    <Library className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">저장소</span>
+                  </button>
+                )}
+
+                {/* 모바일 PDF 생성 버튼 (인도자용 / 회중용 분리) */}
+                <div className="flex items-center bg-black/40 backdrop-blur-md rounded-xl p-1.5 shadow-lg border border-white/10 group flex-nowrap shrink-0">
+                  {/* 공동체 명칭 입력칸 - 세로 패드나 좁은 화면(md 이하)에서는 레이아웃 깨짐을 방지하고자 가림 */}
+                  <div className="hidden md:flex items-center px-4 gap-3 border-r border-white/10">
+                    <span className="text-[11px] font-black text-indigo-400 uppercase tracking-tight group-focus-within:text-white transition-colors whitespace-nowrap">공동체 명칭 수정 :</span>
+                    <input 
+                      type="text"
+                      value={communityName}
+                      onChange={(e) => setCommunityName(e.target.value)}
+                      placeholder="공동체 명칭..."
+                      className="bg-transparent border-none text-[12px] font-black text-white focus:outline-none w-24 placeholder:text-white/20"
+                    />
+                  </div>
+                  
+                  <button
+                    onClick={() => handleGeneratePDF('leader')}
+                    disabled={isGenerating}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-white/10 text-white/90 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0"
+                    title="멘트가 포함된 인도자용 PDF 생성"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-red-400" />
+                    <span className="hidden sm:inline">PDF(인도자)</span>
+                    <span className="inline sm:hidden">인도자</span>
+                  </button>
+                  <div className="w-[1px] bg-white/10 mx-1 self-stretch shrink-0" />
+                  <button
+                    onClick={() => handleGeneratePDF('congregation')}
+                    disabled={isGenerating}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-white/10 text-white/90 rounded-lg text-xs font-bold transition-all whitespace-nowrap shrink-0"
+                    title="악보만 있는 회중용 PDF 생성"
+                  >
+                    <Users className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="hidden sm:inline">PDF(회중)</span>
+                    <span className="inline sm:hidden">회중</span>
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowMemo(!showMemo)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all backdrop-blur-md shadow-lg shrink-0
+                    ${showMemo 
+                      ? 'bg-amber-500 hover:bg-amber-400 text-white shadow-amber-500/20' 
+                      : 'bg-white/10 hover:bg-white/20 text-white/50'
+                    }`}
+                >
+                  <StickyNote className={`w-3.5 h-3.5 ${!showMemo ? 'opacity-50' : ''}`} />
+                  <span className="hidden sm:inline">멘트 {showMemo ? 'ON' : 'OFF'}</span>
+                  <span className="inline sm:hidden">{showMemo ? 'ON' : 'OFF'}</span>
+                </button>
+
+                {/* 메뉴 숨기기 버튼 */}
+                <button
+                  onClick={() => setShowMenuBar(false)}
+                  className="p-2 bg-white/10 hover:bg-white/20 rounded-xl backdrop-blur-md transition-colors shrink-0"
+                  title="메뉴바 숨기기"
+                >
+                  <ChevronUp className="w-5 h-5 text-white" />
+                </button>
+              </div>
+
+              {/* 2층 (한칸 아래): 긴 곡 제목 및 페이지 표시 영역 */}
+              <div className="flex flex-col pl-2 pointer-events-none self-start">
+                <h2 className="text-sm sm:text-base md:text-lg font-black tracking-tight drop-shadow-md text-amber-300">
+                  {currentSong?.title}
+                </h2>
+                <span className="text-[10px] sm:text-xs text-white/70 font-bold leading-none mt-1">
+                  {currentIndex + 1} / {visibleItems.length}
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 메뉴바가 숨겨졌을 때 노출될 귀여운 플로팅 보이기 버튼 */}
+        {!showMenuBar && (
+          <button
+            onClick={() => setShowMenuBar(true)}
+            className="fixed top-4 right-4 z-[10005] p-3 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-md transition-all active:scale-95 shadow-lg border border-white/5 pointer-events-auto"
+            title="메뉴바 보이기"
+          >
+            <ChevronDown className="w-5 h-5" />
+          </button>
+        )}
 
         {/* 이전/다음 버튼 (오버레이) */}
         <button 
@@ -266,8 +322,12 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
           <ChevronRight className="w-10 h-10 text-white" />
         </button>
 
-        {/* 메인 뷰어 영역 */}
-        <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-12 min-h-0 relative">
+        {/* 메인 뷰어 영역 - overflow-y-auto 및 메뉴 접힘 유무에 따른 패딩 처리 */}
+        <div 
+          className={`flex-1 overflow-y-auto custom-scrollbar w-full flex flex-col items-center min-h-0 relative transition-all duration-300 ${
+            showMenuBar ? 'pt-24 pb-8 px-4 sm:px-12' : 'pt-6 pb-6 px-4 sm:px-12'
+          }`}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={currentItem.id}
@@ -275,44 +335,45 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.98, y: -10 }}
               transition={{ duration: 0.3 }}
-              className="relative flex items-center justify-center w-full h-full max-h-[100%] min-h-0"
+              className="relative flex flex-col items-center justify-start w-full min-h-0"
             >
-              {/* Aspect Ratio Box to contain the cropped image */}
+              {/* Aspect Ratio Box to contain the cropped image - 가로 기준 핏팅 및 세로 터치 스크롤 연동 */}
               <div 
-                className="relative inline-flex overflow-hidden bg-white rounded-xl shadow-2xl ring-1 ring-white/10"
-                style={{ maxWidth: '100%', maxHeight: '100%', margin: 'auto' }}
+                className="relative overflow-hidden bg-white rounded-2xl shadow-2xl ring-1 ring-white/10 flex items-center justify-center shrink-0"
+                style={{ 
+                  aspectRatio: `${finalAspectRatio}`,
+                  width: '100%',
+                  maxWidth: '650px', // 패드 세로 및 PC 가로보기 최적 가로 폭 가드
+                  margin: 'auto'
+                }}
               >
-                {/* 보이지 않는 임시 SVG를 통해 비율 강제 및 부모 영역에 맞춘 반응형 축소 보장 */}
-                <svg 
-                  viewBox={`0 0 ${finalAspectRatio * 1000} 1000`} 
-                  className="block max-w-full max-h-full opacity-0 pointer-events-none" 
-                  style={{ height: '100vh', width: 'auto' }}
-                />
-
                 {(!blobUrls[currentSong?.id || ''] && (currentSong?.fileId || currentSong?.filePath)?.length > 20 && !(currentSong?.fileId || currentSong?.filePath)?.startsWith('/')) ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900 text-white">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
                     <span className="text-sm font-bold opacity-70">구글 드라이브 원본을 불러오는 중...</span>
                   </div>
                 ) : (
-                  <img 
-                    src={blobUrls[currentSong?.id || ''] || hymnalApi.resolveImagePath(currentSong?.filePath || currentSong?.filename || '')} 
-                    className="absolute block max-w-none top-0 left-0" 
-                    onLoad={(e) => { 
-                      const img = e.currentTarget;
-                      const ratio = img.naturalWidth / img.naturalHeight;
-                      setImageRatios(prev => ({
-                        ...prev,
-                        [currentItem.id]: ratio
-                      })); 
-                    }} 
-                    style={{ 
-                      width: `${100 / visibleWidthFactor}%`, 
-                      left: `-${(crop.left / visibleWidthFactor)}%`, 
-                      top: `-${(crop.top / visibleHeightFactor)}%` 
-                    }} 
-                    draggable={false} 
-                  />
+                  // 하얀 테두리 박스 안쪽에 사방 4% (sm:4% / 모바일 3%) 상당의 온전한 흰 종이 여백 영역 확보!
+                  <div className="absolute inset-3 sm:inset-4 overflow-hidden">
+                    <img 
+                      src={blobUrls[currentSong?.id || ''] || hymnalApi.resolveImagePath(currentSong?.filePath || currentSong?.filename || '')} 
+                      className="absolute block max-w-none top-0 left-0" 
+                      onLoad={(e) => { 
+                        const img = e.currentTarget;
+                        const ratio = img.naturalWidth / img.naturalHeight;
+                        setImageRatios(prev => ({
+                          ...prev,
+                          [currentItem.id]: ratio
+                        })); 
+                      }} 
+                      style={{ 
+                        width: `${100 / visibleWidthFactor}%`, 
+                        left: `-${(crop.left / visibleWidthFactor)}%`, 
+                        top: `-${(crop.top / visibleHeightFactor)}%` 
+                      }} 
+                      draggable={false} 
+                    />
+                  </div>
                 )}
               </div>
             </motion.div>
@@ -378,6 +439,16 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
             <p className="mt-8 text-xs text-white/30 italic">
               생성이 완료되면 주소가 클립보드에 자동으로 복사됩니다.
             </p>
+
+            {/* 생성 취소/돌아가기 버튼 */}
+            <button
+              onClick={() => {
+                setIsGenerating(false);
+              }}
+              className="mt-8 px-8 py-3 bg-white/10 hover:bg-red-600 hover:text-white text-white/70 rounded-xl text-xs font-bold transition-all border border-white/5 shadow-lg active:scale-95"
+            >
+              생성 취소하고 이전으로 돌아가기
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -420,6 +491,19 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
                   <span className="text-[10px] text-white font-bold">다시 복사하기</span>
                 </div>
               </div>
+
+              {/* 로컬 직접 다운로드 지원 버튼 */}
+              {genFileId && (
+                <button
+                  onClick={() => {
+                    window.open(`https://drive.google.com/uc?export=download&id=${genFileId}`, '_blank');
+                  }}
+                  className="w-full mb-4 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-xs transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  기기에 직접 다운로드
+                </button>
+              )}
               
               <button
                 onClick={() => {
@@ -428,7 +512,7 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
                 }}
                 className="w-full py-4 bg-white text-black rounded-2xl font-black hover:bg-zinc-200 transition-all active:scale-95 shadow-xl"
               >
-                닫기
+                이전 화면으로 돌아가기
               </button>
             </motion.div>
           </motion.div>

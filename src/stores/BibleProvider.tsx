@@ -21,6 +21,8 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [copyMode, setCopyMode] = useState<CopyMode>('default');
   const [showVersionInCopy, setShowVersionInCopy] = useState<boolean>(true);
   
+  // ✅ 로딩 완료 및 DB 덮어쓰기 방지를 위한 초기화 완료 플래그
+  const [isInitialized, setIsInitialized] = useState<boolean>(false);
   // ✅ 인덱싱 중복 방지를 위한 Ref
   const indexedVersionIds = useRef<Set<string>>(new Set());
 
@@ -40,7 +42,6 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (idbVersions && idbVersions.length > 0) {
           loaded = idbVersions;
         } else if (saved) {
-          // Fallback to localStorage migration
           loaded = JSON.parse(saved);
         }
       } catch (e) { console.error("DB Load failed", e); }
@@ -88,6 +89,7 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       setVersions(hydratedVersions);
       setSelectedVersionIds(['built-in-krv']);
+      setIsInitialized(true); // ✅ 초기 1회성 비동기 로딩 완료 선언
 
       // ✅ 2. 구글 드라이브(appDataFolder) 백그라운드 동기화 로직
       const syncCloud = (currentVersions: BibleVersion[]) => {
@@ -102,14 +104,12 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             
             for (const file of driveFiles) {
               const vName = file.name.replace('.txt', '');
-              // 로컬(IndexedDB)에 이미 있는지 확인
               if (!updatedVersions.find(v => v.name === vName)) {
                 try {
                   console.log(`[Bible Sync] Downloading ${file.name} from Cloud...`);
                   const content = await gdriveWebService.downloadBibleFile(file.id);
                   const fullVersion = await BibleParser.parseTxt(vName, content);
                   updatedVersions.push(fullVersion);
-                  // IndexedDB에 새로 다운로드한 성경 저장
                   await bibleDB.saveVersion(fullVersion);
                   hasNew = true;
                 } catch (e) {
@@ -128,10 +128,8 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
       };
 
-      // 처음 초기화 시 실행 (로그인 되어있다면)
       syncCloud(hydratedVersions);
 
-      // 나중에 로그인 성공 시 이벤트로 실행
       const handleAuth = () => {
         setVersions(latestVersions => {
           syncCloud(latestVersions);
@@ -139,38 +137,36 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
       };
       window.addEventListener('gdrive_authenticated', handleAuth);
-      
-      // Cleanup을 위해 컴포넌트 마운트 해제 시 제거하려면 (useEffect 외부에 저장해야 하지만, 일단 여기서는 간단히)
     };
     init();
   }, []);
 
-  // ✅ [안정성 강화] 데이터 로딩 완료 후 비동기적으로 인덱싱 실행
+  // ✅ [안정성 강화] 데이터 로딩 완료 및 화면 로드가 끝난 뒤 비동기 백그라운드 인덱싱
   useEffect(() => {
+    if (!isInitialized) return;
+
     const validOnes = versions.filter(v => v.verses && v.verses.length > 0);
-    
     if (validOnes.length > 0) {
       validOnes.forEach(v => {
-        // 이미 인덱싱된 버전이라도 서비스와의 동기화를 위해 체크
         if (!indexedVersionIds.current.has(v.id) || !searchService.hasIndex(v.id)) {
+          // 1.5초 여유 마진 후 조용히 백그라운드 인덱싱 실행 (앱 기동 렉 방지)
           setTimeout(() => {
             searchService.indexVersion(v);
             indexedVersionIds.current.add(v.id);
-          }, 50); // 약간의 지연을 주어 로딩 안정성 확보
+          }, 1500);
         }
       });
     }
-  }, [versions]);
+  }, [versions, isInitialized]);
 
-  // 2. IndexedDB 저장
+  // 2. IndexedDB 저장 (로딩 완료 플래그 적용하여 초기 덮어쓰기 방지)
   useEffect(() => {
     const saveToDB = async () => {
+      if (!isInitialized) return; // 로딩 전 덮어쓰기 차단 가드
       try {
         for (const v of versions) {
-          // Save all versions including verses to IndexedDB
           await bibleDB.saveVersion(v);
         }
-        // Minimal state for selected tabs in localStorage
         const miniState = versions.map(v => ({ id: v.id, name: v.name, isBuiltIn: v.isBuiltIn }));
         localStorage.setItem('bible-versions-meta', JSON.stringify(miniState));
       } catch (e) {
@@ -178,7 +174,7 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     };
     if (versions.length > 0) saveToDB();
-  }, [versions]);
+  }, [versions, isInitialized]);
 
   const addVersion = (version: BibleVersion) => {
     setVersions(prev => [...prev.filter(v => v.name !== version.name), version]);
@@ -206,7 +202,6 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setSelectedVersionIds(builtIns.map(v => v.id));
         indexedVersionIds.current.clear();
         
-        // Remove non-built-in from DB
         const all = await bibleDB.getAllVersions();
         for (const v of all) {
           if (!v.isBuiltIn) await bibleDB.deleteVersion(v.id);

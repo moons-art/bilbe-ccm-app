@@ -1,4 +1,5 @@
 // src/api/gdriveWebService.ts
+import { imageCache } from '../utils/imageCache';
 
 const GAPI_CLIENT_ID = '786503545807-v0340nhgjnd3rg3i3k03i9r7jrpdnr0h.apps.googleusercontent.com';
 
@@ -6,42 +7,165 @@ const GAPI_CLIENT_ID = '786503545807-v0340nhgjnd3rg3i3k03i9r7jrpdnr0h.apps.googl
 let isGapiLoaded = false;
 let isGsiLoaded = false;
 let tokenClient: any = null;
+// OAuth 토큰 캐시 및 로컬 스토리지 자동 세션 복원
+let accessToken: string | null = (() => {
+  try {
+    const cachedToken = localStorage.getItem('gdrive_token');
+    const cachedExpiresAt = localStorage.getItem('gdrive_token_expires_at');
+    if (cachedToken && cachedExpiresAt) {
+      const expiresAt = parseInt(cachedExpiresAt, 10);
+      if (expiresAt > Date.now()) {
+        console.log('[gdriveWebService] Found valid cached token. Restoring session.');
+        return cachedToken;
+      }
+    }
+  } catch (e) {}
+  return null;
+})();
 
-// OAuth 토큰 캐시
-let accessToken: string | null = null;
+// gapi.client에 토큰을 주입하는 헬퍼 (gapi 로드 후 호출해야 함)
+const applyTokenToGapiClient = (token: string) => {
+  try {
+    if (window.gapi && window.gapi.client) {
+      window.gapi.client.setToken({ access_token: token });
+      console.log('[gdriveWebService] gapi.client token applied.');
+    }
+  } catch (e) {
+    console.warn('[gdriveWebService] Failed to apply token to gapi.client:', e);
+  }
+};
+
+// 토큰 401/403 유효성 상실 시 자가 치유(Self-Healing) 핸들러
+const handleAuthExpired = () => {
+  console.warn('[gdriveWebService] Auth token expired or invalid (401/403). Clearing cache.');
+  accessToken = null;
+  try {
+    localStorage.removeItem('gdrive_token');
+    localStorage.removeItem('gdrive_token_expires_at');
+  } catch (e) {}
+  
+  // 사용자 제스처 없는 강제 팝업 요청을 제거하여 브라우저 팝업 차단(Popup Blocker)을 완벽 차단합니다.
+  // 대신 사용자가 수동 로그인 버튼을 누르게 유도하여 웹 표준 보안을 확보합니다.
+};
+
+// 401/403 에러 인터셉트 기능이 내장된 콤팩트 fetch
+const gdriveFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+  const response = await fetch(url, options);
+  if (response.status === 401 || response.status === 403) {
+    handleAuthExpired();
+    throw new Error('Unauthorized or expired token');
+  }
+  return response;
+};
 
 export const initGoogleApi = (onInit: () => void) => {
+  let hasError = false;
+
+  const handleError = (error: any) => {
+    console.error('[Google API Init Error]', error);
+    if (!hasError) {
+      hasError = true;
+      // 에러 메시지 노출 후 로딩 해제
+      alert('구글 API 초기화 중 오류가 발생했습니다. 구글 드라이브 동기화 기능이 제한될 수 있습니다. \n에러: ' + (error?.message || error || '알 수 없음'));
+      onInit(); // 무한 로딩 상태를 풀기 위해 콜백 강제 실행
+    }
+  };
+
+  // 세션 복원 및 백그라운드 갱신 자동화 (무중단 영구 세션화)
+  const restoreOrRefreshSession = () => {
+    try {
+      const cachedToken = localStorage.getItem('gdrive_token');
+      const cachedExpiresAt = localStorage.getItem('gdrive_token_expires_at');
+      
+      if (cachedToken && cachedExpiresAt) {
+        const expiresAt = parseInt(cachedExpiresAt, 10);
+        if (expiresAt > Date.now()) {
+          // 1. 토큰이 유효한 경우 즉시 복원 및 gapi.client에 주입
+          accessToken = cachedToken;
+          applyTokenToGapiClient(cachedToken); // ✅ 핵심: gapi.client에 토큰 주입
+          console.log('[gdriveWebService] Restored valid cached token and applied to gapi.client.');
+          setTimeout(() => { window.dispatchEvent(new Event('gdrive_authenticated')); }, 300);
+          return;
+        } else {
+          // 만료된 토큰 제거
+          localStorage.removeItem('gdrive_token');
+          localStorage.removeItem('gdrive_token_expires_at');
+          accessToken = null;
+          console.log('[gdriveWebService] Cached token expired, cleared.');
+        }
+      }
+      
+      // 2. 캐시된 토큰이 없거나 만료된 경우 조용히 대기
+      console.log('[gdriveWebService] No valid cached token. Awaiting user click to authenticate.');
+    } catch (e) {
+      console.error('[gdriveWebService] Silent refresh error:', e);
+    }
+  };
+
   // 1. Google API (gapi) 로드
   const gapiScript = document.createElement('script');
   gapiScript.src = 'https://apis.google.com/js/api.js';
+  gapiScript.onerror = () => handleError('Google API 스크립트 로드 실패 (네트워크 또는 보안 설정 차단)');
   gapiScript.onload = () => {
-    window.gapi.load('client', async () => {
-      await window.gapi.client.init({
-        discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+    try {
+      window.gapi.load('client', async () => {
+        try {
+          await window.gapi.client.init({
+            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+          });
+          // drive v3 클라이언트를 명시적 강제 로드하여 undefined 에러 원천 차단
+          await window.gapi.client.load('drive', 'v3');
+          isGapiLoaded = true;
+          if (isGsiLoaded && !hasError) {
+            restoreOrRefreshSession(); // ✅ 토큰을 gapi.client에 먼저 주입
+            onInit();                  // ✅ 그 다음 Provider 초기화
+          }
+        } catch (initErr) {
+          handleError(initErr);
+        }
       });
-      isGapiLoaded = true;
-      if (isGsiLoaded) onInit();
-    });
+    } catch (loadErr) {
+      handleError(loadErr);
+    }
   };
   document.body.appendChild(gapiScript);
 
   // 2. Google Identity Services (GSI) 로드
   const gsiScript = document.createElement('script');
   gsiScript.src = 'https://accounts.google.com/gsi/client';
+  gsiScript.onerror = () => handleError('Google GSI 스크립트 로드 실패 (네트워크 또는 보안 설정 차단)');
   gsiScript.onload = () => {
-    tokenClient = window.google.accounts.oauth2.initTokenClient({
-      client_id: GAPI_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata',
-      callback: (response: any) => {
-        if (response.error !== undefined) {
-          throw (response);
-        }
-        accessToken = response.access_token;
-        console.log('Successfully authenticated with Google Drive');
-      },
-    });
-    isGsiLoaded = true;
-    if (isGapiLoaded) onInit();
+    try {
+      tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: GAPI_CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata',
+        callback: (response: any) => {
+          if (response.error !== undefined) {
+            console.error('GSI auth error:', response);
+            return;
+          }
+          accessToken = response.access_token;
+          applyTokenToGapiClient(response.access_token); // ✅ 핵심: 신규 토큰도 gapi.client에 즉시 주입
+
+          // 로컬 스토리지에 토큰 및 만료 절대시간(1시간) 저장
+          try {
+            const expiresAt = Date.now() + (response.expires_in * 1000);
+            localStorage.setItem('gdrive_token', response.access_token);
+            localStorage.setItem('gdrive_token_expires_at', expiresAt.toString());
+          } catch (e) {}
+
+          console.log('[gdriveWebService] Successfully authenticated with Google Drive.');
+          window.dispatchEvent(new Event('gdrive_authenticated'));
+        },
+      });
+      isGsiLoaded = true;
+      if (isGapiLoaded && !hasError) {
+        restoreOrRefreshSession(); // ✅ 토큰을 gapi.client에 먼저 주입
+        onInit();                  // ✅ 그 다음 Provider 초기화
+      }
+    } catch (gsiErr) {
+      handleError(gsiErr);
+    }
   };
   document.body.appendChild(gsiScript);
 };
@@ -52,20 +176,47 @@ export const gdriveWebService = {
 
   // 로그인 요청
   login: () => {
-    return new Promise((resolve) => {
-      if (!tokenClient) return resolve(false);
+    return new Promise((resolve, reject) => {
+      if (!tokenClient) {
+        resolve(false);
+        return;
+      }
       
-      // 토큰 갱신 로직 오버라이드
-      const originalCallback = tokenClient.callback;
+      // 이미 복원된 유효 토큰 세션이 있다면 구글 팝업 생략하고 성공 처리
+      if (accessToken) {
+        resolve(true);
+        return;
+      }
+      
       tokenClient.callback = (response: any) => {
-        originalCallback(response);
+        if (response.error !== undefined) {
+          console.error('[gdriveWebService] GSI auth error callback:', response.error);
+          alert('구글 인증 실패: ' + response.error);
+          resolve(false);
+          return;
+        }
+        
+        accessToken = response.access_token;
+        applyTokenToGapiClient(response.access_token); // ✅ login() 콜백에서도 gapi.client 주입
+        try {
+          const expiresAt = Date.now() + (response.expires_in * 1000);
+          localStorage.setItem('gdrive_token', response.access_token);
+          localStorage.setItem('gdrive_token_expires_at', expiresAt.toString());
+        } catch (e) {}
+        
+        console.log('[gdriveWebService] Successfully authenticated with Google Drive via callback');
+        window.dispatchEvent(new Event('gdrive_authenticated'));
         resolve(true);
       };
       
-      if (accessToken === null) {
-        tokenClient.requestAccessToken({prompt: 'consent'});
-      } else {
-        tokenClient.requestAccessToken({prompt: ''});
+      try {
+        if (accessToken === null) {
+          tokenClient.requestAccessToken({prompt: 'consent'});
+        } else {
+          tokenClient.requestAccessToken({prompt: ''});
+        }
+      } catch (err) {
+        reject(err);
       }
     });
   },
@@ -74,13 +225,14 @@ export const gdriveWebService = {
   downloadJsonFile: async (fileName: string) => {
     if (!accessToken) throw new Error('Not authenticated');
     
-    // 1. 파일 검색
-    const res = await window.gapi.client.drive.files.list({
-      q: `name='${fileName}' and trashed=false`,
-      spaces: 'drive',
-      fields: 'files(id, name)',
+    // 1. 파일 검색 (fetch 기반)
+    const q = encodeURIComponent(`name='${fileName}' and trashed=false`);
+    const searchRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
     });
-    const files = res.result.files;
+    if (!searchRes.ok) throw new Error(`Drive API ${searchRes.status}: file search failed`);
+    const searchData = await searchRes.json();
+    const files = searchData.files;
     
     if (!files || files.length === 0) {
       return null; // 파일 없음
@@ -88,7 +240,7 @@ export const gdriveWebService = {
     
     // 2. 파일 내용 가져오기
     const fileId = files[0].id;
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    const response = await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
       }
@@ -102,11 +254,12 @@ export const gdriveWebService = {
   uploadJsonFile: async (fileName: string, data: any) => {
     if (!accessToken) throw new Error('Not authenticated');
 
-    const res = await window.gapi.client.drive.files.list({
-      q: `name='${fileName}' and trashed=false`,
-      spaces: 'drive',
+    const q = encodeURIComponent(`name='${fileName}' and trashed=false`);
+    const searchRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
     });
-    const files = res.result.files;
+    const searchData = searchRes.ok ? await searchRes.json() : { files: [] };
+    const files = searchData.files;
 
     let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
     let method = 'POST';
@@ -130,7 +283,7 @@ export const gdriveWebService = {
       JSON.stringify(data) +
       close_delim;
 
-    const uploadRes = await fetch(url, {
+    const uploadRes = await gdriveFetch(url, {
       method,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -151,20 +304,43 @@ export const gdriveWebService = {
   // Folder & General Sync Methods
   // -----------------------------------------
   
+  // 이름으로 폴더를 조회하여 ID 반환 (없으면 null 반환)
+  getFolderId: async (folderName: string): Promise<string | null> => {
+    if (!accessToken) return null;
+    try {
+      const q = encodeURIComponent(`name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+      const res = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const files = data.files;
+      if (files && files.length > 0) {
+        return files[0].id;
+      }
+      return null;
+    } catch (err) {
+      console.error(`[gdriveWebService] getFolderId failed for ${folderName}`, err);
+      return null;
+    }
+  },
+
   // 이름으로 폴더를 찾고, 없으면 생성 후 ID 반환
   getOrCreateFolder: async (folderName: string): Promise<string> => {
     if (!accessToken) throw new Error('Not authenticated');
     
-    // 1. 폴더 존재 여부 확인
-    const res = await window.gapi.client.drive.files.list({
-      q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      spaces: 'drive',
-      fields: 'files(id, name)',
+    // 1. 폴더 존재 여부 확인 (fetch 기반)
+    const q = encodeURIComponent(`name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const searchRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     
-    const files = res.result.files;
-    if (files && files.length > 0) {
-      return files[0].id;
+    if (searchRes.ok) {
+      const searchData = await searchRes.json();
+      const files = searchData.files;
+      if (files && files.length > 0) {
+        return files[0].id;
+      }
     }
     
     // 2. 없으면 새로 생성
@@ -173,7 +349,7 @@ export const gdriveWebService = {
       mimeType: 'application/vnd.google-apps.folder',
     };
     
-    const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    const createRes = await gdriveFetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -194,17 +370,18 @@ export const gdriveWebService = {
     if (!accessToken) throw new Error('Not authenticated');
     const folderId = await gdriveWebService.getOrCreateFolder('CEUM_Bible_Data');
     
-    const res = await window.gapi.client.drive.files.list({
-      q: `'${folderId}' in parents and mimeType='text/plain' and trashed=false`,
-      spaces: 'drive',
-      fields: 'files(id, name)',
+    const q = encodeURIComponent(`'${folderId}' in parents and mimeType='text/plain' and trashed=false`);
+    const res = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
     });
-    return res.result.files || [];
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.files || [];
   },
 
   downloadBibleFile: async (fileId: string) => {
     if (!accessToken) throw new Error('Not authenticated');
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    const response = await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
     if (!response.ok) throw new Error('Failed to download bible');
@@ -215,11 +392,12 @@ export const gdriveWebService = {
     if (!accessToken) throw new Error('Not authenticated');
     const folderId = await gdriveWebService.getOrCreateFolder('CEUM_Bible_Data');
 
-    const res = await window.gapi.client.drive.files.list({
-      q: `name='${fileName}' and '${folderId}' in parents and trashed=false`,
-      spaces: 'drive',
+    const q = encodeURIComponent(`name='${fileName}' and '${folderId}' in parents and trashed=false`);
+    const searchRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
     });
-    const files = res.result.files;
+    const searchData = searchRes.ok ? await searchRes.json() : { files: [] };
+    const files = searchData.files;
 
     let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
     let method = 'POST';
@@ -245,7 +423,7 @@ export const gdriveWebService = {
       textData +
       close_delim;
 
-    const uploadRes = await fetch(url, {
+    const uploadRes = await gdriveFetch(url, {
       method,
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -258,42 +436,184 @@ export const gdriveWebService = {
     return uploadRes.json();
   },
 
-  // 이미지 파일 (미디어) Blob 다운로드
-  downloadImageBlob: async (fileId: string): Promise<string | null> => {
+  // 이미지 파일 (미디어) Blob 다운로드 및 캐싱 연동
+  getFileBlob: async (fileId: string): Promise<Blob | null> => {
+    if (!fileId) return null;
+    
+    // 1. 로컬 캐시 조회
+    const cachedBlob = await imageCache.getImage(fileId);
+    if (cachedBlob) {
+      console.log(`[Cache Hit] Loaded score from local database: ${fileId}`);
+      return cachedBlob;
+    }
+    
+    // 2. 캐시 미스 시 구글 드라이브 다운로드
     if (!accessToken) return null;
     try {
-      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      console.log(`[Cache Miss] Downloading score from Google Drive: ${fileId}`);
+      const response = await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
       if (!response.ok) return null;
       const blob = await response.blob();
-      return URL.createObjectURL(blob);
+      
+      // 3. 로컬 캐시 저장
+      await imageCache.saveImage(fileId, blob);
+      return blob;
     } catch (e) {
-      console.error('Failed to download image blob', e);
+      console.error('Failed to get file blob from drive', e);
       return null;
     }
+  },
+
+  // 이미지 파일 (미디어) Blob URL 반환
+  downloadImageBlob: async (fileId: string): Promise<string | null> => {
+    const blob = await gdriveWebService.getFileBlob(fileId);
+    if (blob) {
+      return URL.createObjectURL(blob);
+    }
+    return null;
+  },
+
+  // 특정 폴더 내의 이미지 파일 목록 실시간 조회 및 이름순 정렬
+  listFolderFiles: async (folderName: string): Promise<any[]> => {
+    if (!accessToken) return [];
+    try {
+      const folderId = await gdriveWebService.getOrCreateFolder(folderName);
+      
+      const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and (mimeType='image/webp' or mimeType='image/jpeg' or mimeType='image/png')`);
+      const res = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name,createdTime)&pageSize=1000`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const files = data.files || [];
+      // 한국어 자모음 기준 가나다 순 오름차순 정렬
+      return files.sort((a: any, b: any) => a.name.localeCompare(b.name, 'ko'));
+    } catch (err) {
+      console.error(`[gdriveWebService] listFolderFiles for folder '${folderName}' failed`, err);
+      return [];
+    }
+  },
+
+  // 하위 호환성 유지용 listCcmFiles 메소드
+  listCcmFiles: async (): Promise<any[]> => {
+    return gdriveWebService.listFolderFiles('CEUM_ccm_data');
   },
 
   renameFolder: async (oldName: string, newName: string) => {
     if (!accessToken) throw new Error('Not authenticated');
     try {
-      const res = await window.gapi.client.drive.files.list({
-        q: `name='${oldName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-        spaces: 'drive',
+      const q = encodeURIComponent(`name='${oldName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+      const searchRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      const folders = res.result.files;
+      if (!searchRes.ok) return false;
+      const searchData = await searchRes.json();
+      const folders = searchData.files;
 
       if (folders && folders.length > 0) {
         const folderId = folders[0].id;
-        await window.gapi.client.drive.files.update({
-          fileId: folderId,
-          resource: { name: newName }
+        const updateRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${folderId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name: newName })
         });
-        return true;
+        return updateRes.ok;
       }
     } catch (err) {
       console.error('Rename folder failed', err);
     }
     return false;
+  },
+
+  // PDF 파일 업로드 및 공유 링크 생성
+  uploadPdfFile: async (fileName: string, pdfBlob: Blob): Promise<{ id: string; webViewLink: string }> => {
+    if (!accessToken) throw new Error('Not authenticated');
+    
+    // CEUM_PDF_Library 폴더가 없을 경우 자동 생성 및 ID 조회
+    const folderId = await gdriveWebService.getOrCreateFolder('CEUM_PDF_Library');
+
+    const metadata = {
+      name: fileName,
+      parents: [folderId],
+      mimeType: 'application/pdf'
+    };
+
+    const boundary = '-------314159265358979323846';
+    
+    // RFC 규격 및 구글 업로드 API 스펙에 맞추어 multipart 바디 조립 (각 파트 개행 준수)
+    const part1Str = 
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: application/pdf\r\n\r\n`;
+      
+    const part2Str = `\r\n--${boundary}--`;
+
+    // Blob 데이터를 ArrayBuffer로 읽기
+    const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(pdfBlob);
+    });
+
+    const uInt8Array = new Uint8Array(arrayBuffer);
+    const encoder = new TextEncoder();
+    const part1 = encoder.encode(part1Str);
+    const part2 = encoder.encode(part2Str);
+
+    // 전체 바디 합치기
+    const body = new Uint8Array(part1.length + uInt8Array.length + part2.length);
+    body.set(part1, 0);
+    body.set(uInt8Array, part1.length);
+    body.set(part2, part1.length + uInt8Array.length);
+
+    const url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    const uploadRes = await gdriveFetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`
+      },
+      body
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`PDF Upload failed: ${errText}`);
+    }
+
+    const createdFile = await uploadRes.json();
+    const fileId = createdFile.id;
+
+    // 공유 권한 부여 (anyone reader)
+    await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        role: 'reader',
+        type: 'anyone'
+      })
+    });
+
+    // 파일 정보 조회로 webViewLink 가져오기
+    const fileInfoRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=webViewLink`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    const fileInfo = await fileInfoRes.json();
+
+    return {
+      id: fileId,
+      webViewLink: fileInfo.webViewLink
+    };
   }
 };

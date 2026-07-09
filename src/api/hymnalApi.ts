@@ -28,28 +28,82 @@ export const hymnalApi = {
   },
 
   getSongs: async () => {
+    let baseSongs = [];
     try {
+      // 1. settings.json에서 등록된 앨범 리스트를 먼저 조회
+      const settings = await hymnalApi.getSettings();
+      const activeAlbums = settings.albums || [];
+
+      // 2. music_data.json (찬송가 등 기본 DB) 다운로드
       const data = await gdriveWebService.downloadJsonFile('music_data.json');
-      if (data && data.length > 0) return data;
-      
-      try {
-        const defaultResponse = await fetch('/data/hymnal_default.json');
-        if (defaultResponse.ok) {
-          const defaultData = await defaultResponse.json();
-          await gdriveWebService.uploadJsonFile('music_data.json', defaultData).catch(() => {});
-          return defaultData;
-        }
-      } catch (err) {
-        console.warn('Failed to load default hymnal data', err);
+      if (data && data.length > 0) {
+        baseSongs = data;
+      } else {
+        try {
+          const defaultResponse = await fetch('/data/hymnal_default.json');
+          if (defaultResponse.ok) {
+            baseSongs = await defaultResponse.json();
+          }
+        } catch (err) {}
       }
-      return [];
-    } catch (e) {
+
+      // 3. 찬송가(hymnal) 데이터만 정적으로 확보 (커스텀/기타파일 등은 실시간 드라이브 연동하므로 제외)
+      const hymnalSongs = baseSongs.filter((s: any) => s.albumId === 'hymnal');
+
+      // 찬송가 드라이브 폴더 'CEUM_Album_새찬송가' 실시간 스캔 및 이미지 파일 ID 매핑
+      let hymnalDriveFiles: any[] = [];
       try {
-        const defaultResponse = await fetch('/data/hymnal_default.json');
-        if (defaultResponse.ok) {
-          return await defaultResponse.json();
+        hymnalDriveFiles = await gdriveWebService.listFolderFiles('CEUM_Album_새찬송가');
+      } catch (driveErr) {
+        console.warn('[hymnalApi] Failed to scan CEUM_Album_새찬송가 folder', driveErr);
+      }
+
+      // 찬송가 정적 곡 목록에 실시간 스캔된 구글 파일 ID를 매핑 (찬송가 악보 정상 노출 및 PDF 빌드 정상화 보장)
+      const mappedHymnalSongs = hymnalSongs.map((song: any) => {
+        const matchedFile = hymnalDriveFiles.find((file: any) => {
+          const numMatch = file.name.match(/\d+/);
+          const fileNum = numMatch ? parseInt(numMatch[0], 10) : -1;
+          return fileNum === song.number;
+        });
+
+        return {
+          ...song,
+          fileId: matchedFile ? matchedFile.id : undefined
+        };
+      });
+
+      // 4. 활성화된 앨범 중 'hymnal'을 제외한 모든 앨범의 구글 드라이브 실시간 스캔 병렬 처리
+      const nonHymnalAlbums = activeAlbums.filter((a: any) => a.id !== 'hymnal');
+      
+      const scanPromises = nonHymnalAlbums.map(async (album: any) => {
+        const folderName = album.id === 'misc' ? 'CEUM_ccm_data' : `CEUM_Album_${album.name}`;
+        try {
+          const files = await gdriveWebService.listFolderFiles(folderName);
+          return files.map((file: any, index: number) => {
+            const title = file.name.replace(/\.[^/.]+$/, ""); // 확장자 제거
+            return {
+              id: `${album.id}-${file.id}`,
+              title: title,
+              number: index + 1,
+              albumId: album.id,
+              type: 'image',
+              fileId: file.id,
+              searchTokens: [title]
+            };
+          });
+        } catch (e) {
+          console.warn(`[hymnalApi] Failed to scan album folder: ${folderName}`, e);
+          return [];
         }
-      } catch (err) {}
+      });
+
+      const scannedAlbumSongs = await Promise.all(scanPromises);
+      const combinedScanned = scannedAlbumSongs.flat();
+
+      // 5. 매핑 완료된 찬송가 데이터와 드라이브 실시간 스캔 곡 데이터를 병합
+      return [...mappedHymnalSongs, ...combinedScanned];
+    } catch (e) {
+      console.error('[hymnalApi] Failed in getSongs real-time merge process', e);
       return [];
     }
   },
@@ -77,11 +131,30 @@ export const hymnalApi = {
   },
 
   deleteAlbum: async (id: string) => {
-    const settings = await hymnalApi.getSettings();
-    settings.albums = settings.albums.filter((a: any) => a.id !== id);
-    const saveResult = await hymnalApi.saveSettings(settings);
-    if (!saveResult.success) return saveResult;
-    return { success: true };
+    try {
+      const settings = await hymnalApi.getSettings();
+      const targetAlbum = settings.albums.find((a: any) => a.id === id);
+      
+      settings.albums = settings.albums.filter((a: any) => a.id !== id);
+      const saveResult = await hymnalApi.saveSettings(settings);
+      if (!saveResult.success) return saveResult;
+
+      // 구글 드라이브에서 실제 폴더 및 하위 파일 영구 삭제 (복구 불가)
+      if (targetAlbum && targetAlbum.id !== 'hymnal' && targetAlbum.id !== 'misc') {
+        const folderName = `CEUM_Album_${targetAlbum.name}`;
+        const folderId = await gdriveWebService.getFolderId(folderName);
+        if (folderId) {
+          await window.gapi.client.drive.files.delete({
+            fileId: folderId
+          });
+          console.log(`[hymnalApi] Successfully deleted physical Drive folder: ${folderName}`);
+        }
+      }
+      return { success: true };
+    } catch (e: any) {
+      console.error('[hymnalApi] deleteAlbum failed:', e);
+      return { success: false, error: e.message };
+    }
   },
 
   updateSong: async (song: any) => {
@@ -166,8 +239,48 @@ export const hymnalApi = {
     return { processed: 0 };
   },
 
+  // PDF 생성 진행 콜백 보관
+  pdfProgressCallback: null as ((data: any) => void) | null,
+
   onProgress: (callback: any) => {
     return () => {};
+  },
+
+  onPDFProgress: (callback: (data: any) => void) => {
+    hymnalApi.pdfProgressCallback = callback;
+    return () => {
+      hymnalApi.pdfProgressCallback = null;
+    };
+  },
+
+  generatePDF: async ({ title, type, items, songs, footer }: { title: string, type: 'leader' | 'congregation', items: any[], songs?: any[], footer?: string }) => {
+    try {
+      const finalSongs = (songs && songs.length > 0) ? songs : await hymnalApi.getSongs();
+      const progress = (msg: string, percent: number) => {
+        if (hymnalApi.pdfProgressCallback) {
+          hymnalApi.pdfProgressCallback({ msg, percent });
+        }
+      };
+
+      // 1. PDF Blob 생성 (jsPDF 기반 동적 렌더링)
+      const { generateMobilePDF } = await import('../utils/pdfGenerator');
+      const pdfBlob = await generateMobilePDF(title, type, items, finalSongs, progress, footer);
+
+      // 2. 구글 드라이브 업로드
+      progress('구글 드라이브 업로드 중...', 90);
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+      const typeStr = type === 'leader' ? '인도자' : '회중';
+      const fileName = `[모바일]_${title}_${typeStr}_${dateStr}.pdf`;
+
+      const uploadResult = await gdriveWebService.uploadPdfFile(fileName, pdfBlob);
+      
+      progress('생성 완료!', 100);
+      return { success: true, url: uploadResult.webViewLink, fileId: uploadResult.id };
+    } catch (e: any) {
+      console.error('[hymnalApi] generatePDF error:', e);
+      return { success: false, message: e.message || 'PDF 생성 실패' };
+    }
   },
 
   selectFileForConti: () => {
@@ -269,9 +382,8 @@ export const hymnalApi = {
         const fileId = await uploadImageToGDrive(compressedBlob, `${fileName}.webp`);
 
         uploadedSongs.push({
-          id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: `misc-${fileId}`,
           title: fileName,
-          number: uploadedSongs.length + 1,
           albumId: 'misc',
           type: 'image',
           fileId: fileId,

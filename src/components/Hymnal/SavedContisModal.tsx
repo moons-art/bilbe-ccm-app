@@ -61,7 +61,7 @@ export const SavedContisModal: React.FC<SavedContisModalProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3">
-              {savedContis.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).map((conti, idx) => {
+              {[...savedContis].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).map((conti, idx) => {
                 const colors = ['bg-blue-500', 'bg-indigo-500', 'bg-purple-500', 'bg-pink-500', 'bg-rose-500', 'bg-amber-500', 'bg-emerald-500', 'bg-sky-500'];
                 const colorClass = colors[conti.title.length % colors.length];
                 const lightColorClass = colorClass.replace('-500', '-50');

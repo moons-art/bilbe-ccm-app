@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useHymnal } from '../../stores/HymnalProvider';
 import { 
   Music, 
@@ -10,14 +10,45 @@ import {
 } from 'lucide-react';
 import { hymnalApi } from '../../api/hymnalApi';
 
-const TooltipIcon = ({ text }: { text: string }) => (
-  <div className="relative group inline-block ml-1" onClick={e => e.stopPropagation()}>
-    <HelpCircle className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-500 transition-colors cursor-help" />
-    <div className="fixed bottom-[140px] left-4 w-[240px] p-3 bg-slate-800 text-white text-[12px] font-bold leading-relaxed rounded-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-200 translate-y-2 group-hover:translate-y-0 z-[100] shadow-2xl text-left whitespace-pre-wrap">
-      {text}
+// --- Tooltip Guide Helper Component ---
+const TooltipIcon = ({ text }: { text: string }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, []);
+
+  return (
+    <div 
+      ref={containerRef}
+      className="relative inline-block ml-1" 
+      onClick={e => {
+        e.stopPropagation();
+        setIsOpen(!isOpen);
+      }}
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      <HelpCircle className={`w-3.5 h-3.5 transition-colors cursor-help ${isOpen ? 'text-indigo-500' : 'text-slate-400 hover:text-indigo-500'}`} />
+      <div className={`fixed bottom-[140px] left-4 w-[240px] p-3 bg-slate-800 text-white text-[12px] font-bold leading-relaxed rounded-xl transition-all duration-200 shadow-2xl text-left whitespace-pre-wrap z-[100] ${
+        isOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none'
+      }`}>
+        {text}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export const HymnalSidebar: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
@@ -31,7 +62,8 @@ export const HymnalSidebar: React.FC = () => {
     setEditingAlbum,
     setShowAlbumModal,
     isSyncing,
-    setIsSyncing
+    setIsSyncing,
+    fetchSongs
   } = useHymnal();
 
   // 대량 앨범 업로드 처리
@@ -43,29 +75,42 @@ export const HymnalSidebar: React.FC = () => {
       const albumName = isHymnal ? '새찬송가' : prompt('업로드할 앨범 이름을 입력해주세요:', '새 앨범');
       if (!albumName) return;
 
+      const albumId = isHymnal ? 'hymnal' : albumName;
+
+      // 1. 이미 해당 앨범에 등록된 곡들의 파일명(타이틀) Set 생성
+      const targetAlbumSongs = songs.filter(s => s.albumId === albumId);
+      const existingTitles = new Set(targetAlbumSongs.map(s => s.title));
+
+      // 2. 선택한 폴더 내 파일 중 이미 등록된 파일명을 가진 파일 제외 (중복 건너뛰기)
+      const filesToUpload = files.filter(file => {
+        if (!file.type.startsWith('image/')) return false;
+        const fileName = file.name.replace(/\.[^/.]+$/, "");
+        return !existingTitles.has(fileName);
+      });
+
+      if (filesToUpload.length === 0) {
+        alert('선택한 폴더의 모든 악보가 이미 앨범에 등록되어 있어 업로드를 건너뜁니다.');
+        return;
+      }
+
       setIsSyncing(true);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const uploadedSongs = await hymnalApi.batchUploadImagesToGDrive(files, albumName, (processed, total) => {
+      // 신규 추가된 파일들만 선별하여 구글 드라이브 업로드 수행 (데이터베이스 json 수정 안함)
+      await hymnalApi.batchUploadImagesToGDrive(filesToUpload, albumName, (processed, total) => {
         setUploadProgress({ processed, total });
       });
 
-      // 1. 노래 목록 업데이트
-      const updatedSongs = [...songs, ...uploadedSongs];
-      setSongs(updatedSongs);
-      
-      // 구글 API 동적으로 불러와서 JSON 저장
-      const { gdriveWebService } = await import('../../api/gdriveWebService');
-      await gdriveWebService.uploadJsonFile('music_data.json', updatedSongs);
-
-      // 2. 앨범 목록 업데이트
-      const albumId = isHymnal ? 'hymnal' : albumName;
+      // 3. 앨범 목록 업데이트
       if (!albums.find(a => a.id === albumId)) {
         const newAlbums = [...albums, { id: albumId, name: albumName }];
         setAlbums(newAlbums);
+        const { gdriveWebService } = await import('../../api/gdriveWebService');
         await gdriveWebService.uploadJsonFile('settings.json', { albums: newAlbums });
       }
 
-      alert('업로드가 완료되었습니다!');
+      // 4. 노래 목록을 실시간 드라이브 파일 스캔을 통해 완전 리로드
+      await fetchSongs();
+
+      alert(`${filesToUpload.length}개의 신규 악보 업로드가 완료되었습니다! (중복된 ${files.length - filesToUpload.length}개 파일 건너뜀)`);
     } catch (e: any) {
       console.error(e);
       alert(`업로드 중 오류가 발생했습니다: ${e?.message || e}`);
@@ -81,37 +126,40 @@ export const HymnalSidebar: React.FC = () => {
       const files = await hymnalApi.selectMultipleFiles();
       if (!files || files.length === 0) return;
 
+      // 1. 이미 등록된 곡(기타파일앨범) 목록을 대조하여 중복 업로드 필터링
+      const miscSongs = songs.filter(s => s.albumId === 'misc');
+      const existingTitles = new Set(miscSongs.map(s => s.title));
+
+      const filesToUpload = files.filter(file => {
+        if (!file.type.startsWith('image/')) return false;
+        const fileName = file.name.replace(/\.[^/.]+$/, "");
+        return !existingTitles.has(fileName);
+      });
+
+      if (filesToUpload.length === 0) {
+        alert('선택한 모든 파일이 이미 기타파일앨범에 등록되어 있어 업로드를 건너뜁니다.');
+        return;
+      }
+
       setIsSyncing(true);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const uploadedSongs = await hymnalApi.uploadSingleImagesToGDrive(files, (processed, total) => {
+      
+      // 2. 신규 악보만 구글 드라이브에 업로드 (CEUM_ccm_data 폴더에 저장됨)
+      await hymnalApi.uploadSingleImagesToGDrive(filesToUpload, (processed, total) => {
         // progress callback
       });
 
-      // 병합 로직: 새찬송가 업로드 시, 기존 기본 목록(hymnal_default.json)의 항목과 합칩니다.
-      const updatedSongs = [...songs];
-      for (const newSong of uploadedSongs) {
-        const existingIndex = updatedSongs.findIndex(s => 
-          (s.albumId === newSong.albumId || (s.albumId === 'hymnal' && newSong.albumId === 'hymnal')) 
-          && (s.number === newSong.number || s.title === newSong.title)
-        );
-        if (existingIndex !== -1) {
-          updatedSongs[existingIndex] = { ...updatedSongs[existingIndex], ...newSong, id: updatedSongs[existingIndex].id };
-        } else {
-          updatedSongs.push(newSong);
-        }
-      }
-
-      setSongs(updatedSongs);
-      const { gdriveWebService } = await import('../../api/gdriveWebService');
-      await gdriveWebService.uploadJsonFile('music_data.json', updatedSongs);
-
+      // 3. 앨범 목록 연동 (기타파일앨범 카테고리 1회 활성화)
       if (!albums.find(a => a.id === 'misc')) {
         const newAlbums = [...albums, { id: 'misc', name: '기타파일앨범' }];
         setAlbums(newAlbums);
+        const { gdriveWebService } = await import('../../api/gdriveWebService');
         await gdriveWebService.uploadJsonFile('settings.json', { albums: newAlbums });
       }
 
-      alert('낱개 파일 업로드가 완료되었습니다!');
+      // 4. 리스트 갱신 (실시간 구글 드라이브 스캔 로직 작동)
+      await fetchSongs();
+
+      alert(`${filesToUpload.length}개의 신규 파일 업로드가 완료되었습니다! (중복 ${files.length - filesToUpload.length}개 건너뜀)`);
     } catch (e: any) {
       console.error(e);
       alert(`업로드 중 오류가 발생했습니다: ${e?.message || e}`);

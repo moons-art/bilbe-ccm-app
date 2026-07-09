@@ -793,7 +793,7 @@ export const HymnalModule: React.FC = () => {
                   {editingAlbum && (
                     <button 
                       onClick={() => {
-                        if (confirm('앨범을 삭제하시겠습니까? 데이터베이스에서만 제거되며 원본 파일은 보존됩니다.')) {
+                        if (confirm('<주의!> 구글드라이브의 해당 폴더와 파일이 삭제 되어 복구되지 않습니다.\n정말로 삭제하시겠습니까?')) {
                           deleteAlbum(editingAlbum.id);
                           setShowAlbumModal(false);
                         }
