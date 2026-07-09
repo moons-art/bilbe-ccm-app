@@ -11,6 +11,7 @@ import { Menu, Search, BookOpen, Settings, X, Plus, Check, ChevronLeft, ChevronR
 import { motion, AnimatePresence } from 'framer-motion';
 import { searchService, type SearchRange } from './services/searchService';
 import { BIBLE_BOOKS, BIBLE_LIST } from './constants/bibleMeta';
+import { initGoogleApi } from './api/gdriveWebService';
 
 import { MobilePdfLayout } from './components/Hymnal/MobilePdfLayout';
 
@@ -235,6 +236,19 @@ const MainApp: React.FC = () => {
   if (isPrintMode) {
     return <MobilePdfLayout />;
   }
+
+  // ✅ 구글 API 초기화 (최초 1회)
+  const [isApiLoaded, setIsApiLoaded] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  React.useEffect(() => {
+    initGoogleApi(() => {
+      console.log('[App] Google API successfully initialized.');
+      setIsApiLoaded(true);
+    });
+  }, []);
+
   const { 
     versions, 
     selectedVersionIds, 
@@ -417,6 +431,64 @@ const MainApp: React.FC = () => {
     }
   };
 
+  // ✅ 1단계: 강제 로그인 스플래시 화면
+  if (!isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white font-sans">
+        <div className="text-center flex flex-col items-center">
+          <div className="w-24 h-24 bg-indigo-500 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/50">
+            <span className="text-4xl font-black text-white">C</span>
+          </div>
+          <h1 className="text-4xl font-bold mb-4 text-white">CEUM Cloud <span className="text-indigo-400">1.5</span></h1>
+          <p className="mb-6 text-slate-300 max-w-lg leading-relaxed text-sm text-left bg-slate-800/50 p-6 rounded-xl border border-slate-700">
+            <span className="block mb-2 font-bold text-indigo-300">📌 클라우드 동기화 안내</span>
+            • <strong>성경번역본</strong>을 추가하면 구글 드라이브에 자동 저장되고 다른 기기에 연동됩니다.<br />
+            • <strong>[앨범 업로드]</strong> 기능을 사용하면 앨범이 구글드라이브에 업로드 되고 앨범 목록이 자동으로 생성됩니다.<br />
+            • <strong>[찬송가 앨범 업로드]</strong> 기능으로 최초 1회 업로드 바랍니다. 찬송가는 기본앨범으로 등록되어 있으나 용량관계로 악보는 사용자가 직접 업로드 하셔야 합니다.
+          </p>
+          <button 
+            className={`px-8 py-4 bg-white text-slate-900 rounded-xl font-bold text-lg hover:bg-slate-100 transition shadow-xl ${!isApiLoaded ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1'}`}
+            disabled={!isApiLoaded || isSyncing}
+            onClick={async () => {
+              setIsSyncing(true);
+              try {
+                // 앱에서 쓸 구글 API 인증 호출
+                const { gdriveWebService } = await import('./api/gdriveWebService');
+                const success = await gdriveWebService.login();
+                if (success) {
+                  // 시스템 기본 폴더 강제 할당 (절대 덮어쓰지 않고 ID만 반환됨)
+                  console.log('[System] Initializing default folders...');
+                  await Promise.all([
+                    gdriveWebService.getOrCreateFolder('CEUM_Bible_Data'),
+                    gdriveWebService.getOrCreateFolder('CEUM_ccm_data')
+                  ]);
+                  console.log('[System] Folders initialized.');
+
+                  setTimeout(() => {
+                    setIsAuthenticated(true);
+                    window.dispatchEvent(new Event('gdrive_authenticated'));
+                  }, 500);
+                }
+              } catch (e) {
+                console.error(e);
+                alert('로그인에 실패했습니다.');
+              } finally {
+                setIsSyncing(false);
+              }
+            }}
+          >
+            {isSyncing ? '클라우드 연동 중...' : (isApiLoaded ? '구글 계정으로 시작하기' : 'API 로딩 중...')}
+          </button>
+          
+          <div className="mt-12 text-sm text-slate-500">
+            진행 시 구글 드라이브 접근 권한을 요청합니다.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ 2단계: 메인 앱 UI
   return (
     <div className="flex h-screen bg-background text-slate-200 overflow-y-auto overflow-x-hidden font-sans custom-scrollbar">
       {/* ... (sidebar content skipped for brevity in replacement) */}
@@ -990,9 +1062,22 @@ const MainApp: React.FC = () => {
               </div>
               <div className="p-8">
                 <FileUploader 
-                  onUploadSuccess={(v) => {
+                  onUploadSuccess={async (v, rawContent) => {
                     addVersion(v);
                     setShowUploadModal(false);
+                    // 구글 드라이브(appDataFolder)에 백업
+                    if (rawContent) {
+                      try {
+                        console.log(`[Bible Sync] Uploading ${v.name}.txt to Google Drive...`);
+                        const { gdriveWebService } = await import('./api/gdriveWebService');
+                        await gdriveWebService.uploadBibleFile(`${v.name}.txt`, rawContent);
+                        console.log(`[Bible Sync] Upload complete`);
+                        alert('성경번역본이 구글 드라이브(CEUM_Bible_Data)에 안전하게 보관되었습니다!');
+                      } catch (e: any) {
+                        console.error('Failed to backup bible to drive', e);
+                        alert(`구글 드라이브 업로드 실패: ${e?.message || e}`);
+                      }
+                    }
                   }} 
                 />
               </div>

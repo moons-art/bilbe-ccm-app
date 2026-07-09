@@ -8,7 +8,7 @@ class HymnalService {
   constructor() {
     this.miniSearch = new MiniSearch({
       fields: ['number', 'title', 'lyrics', 'code', 'meter', 'category'], // 검색 대상 필드 확장
-      storeFields: ['id', 'number', 'title', 'lyrics', 'filename', 'filePath', 'category', 'code', 'meter'],
+      storeFields: ['id', 'number', 'title', 'lyrics', 'filename', 'filePath', 'category', 'code', 'meter', 'albumId', 'fileId'],
       searchOptions: {
         boost: { title: 2, number: 3 },
         fuzzy: 0.1,
@@ -28,7 +28,12 @@ class HymnalService {
       category: (song.category || '').normalize('NFC'),
       code: (song.code || '').normalize('NFC'),
       meter: (song.meter || '').normalize('NFC'),
-      number: song.number || 0
+      number: song.number || 0,
+      filename: song.filename,
+      filePath: song.filePath,
+      albumId: song.albumId,
+      fileId: song.fileId,
+      searchTokens: (song.searchTokens || []).join(' ')
     }));
 
     this.songs = sanitizedSongs as HymnalSong[];

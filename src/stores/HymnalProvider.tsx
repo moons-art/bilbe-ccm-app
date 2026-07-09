@@ -99,6 +99,9 @@ interface HymnalContextType {
   
   fetchSongs: () => Promise<void>;
   reloadSettings: () => Promise<void>;
+  setSongs: React.Dispatch<React.SetStateAction<HymnalSong[]>>;
+  setAlbums: React.Dispatch<React.SetStateAction<Album[]>>;
+  setContiItems: React.Dispatch<React.SetStateAction<ContiItem[]>>;
 }
 
 const HymnalContext = createContext<HymnalContextType | undefined>(undefined);
@@ -150,6 +153,29 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setSongs(data);
       hymnalService.setSongs(data);
       setFilteredSongs(data);
+
+      // 누락된 앨범 자동 복구 (music_data.json에는 있지만 settings.json에 없는 앨범 복구)
+      setAlbums(prevAlbums => {
+        const existingAlbumIds = new Set(prevAlbums.map(a => a.id));
+        const newAlbums = [...prevAlbums];
+        let changed = false;
+
+        data.forEach(song => {
+          if (song.albumId && song.albumId !== 'hymnal' && song.albumId !== 'misc' && !existingAlbumIds.has(song.albumId)) {
+            existingAlbumIds.add(song.albumId);
+            newAlbums.push({ id: song.albumId, name: song.albumId, type: 'user' });
+            changed = true;
+          }
+        });
+
+        if (changed) {
+          // 비동기로 저장 (렌더링 차단 안함)
+          hymnalApi.saveSettings({ albums: newAlbums }).catch(console.error);
+          return newAlbums;
+        }
+        return prevAlbums;
+      });
+
     } catch (e) {
       console.error("Failed to load music data via API", e);
     } finally {
@@ -164,25 +190,41 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Load Initial Data
   useEffect(() => {
-    reloadSettings();
-    fetchSongs();
-    fetchSavedContis();
-    
-    // 로컬 스토리지에서 이전 콘티 데이터 로드 (옵션)
-    const savedConti = localStorage.getItem('last_conti');
-    if (savedConti) {
+    const init = async () => {
       try {
-        const parsed = JSON.parse(savedConti);
-        setContiItems(parsed.items || []);
-        setContiTitle(parsed.title || '');
-        setContiTitleFontSize(parsed.contiTitleFontSize || 48);
-        setShowContiNumbers(parsed.showContiNumbers !== undefined ? parsed.showContiNumbers : true);
-        setPaperSize(parsed.paperSize || 'A4');
-        setOrientation(parsed.orientation || 'portrait');
-        setItemsPerPage(parsed.itemsPerPage || 2);
-        setCurrentContiId(parsed.currentContiId || null);
-      } catch (e) {}
-    }
+        await reloadSettings(); // 먼저 앨범 목록 등을 로드
+        await fetchSongs();     // 그 다음 곡 목록을 로드하며 누락된 앨범 복원
+        await fetchSavedContis();
+        
+        // 로컬 스토리지에서 이전 콘티 데이터 로드 (옵션)
+        const savedConti = localStorage.getItem('last_conti');
+        if (savedConti) {
+          try {
+            const parsed = JSON.parse(savedConti);
+            setContiItems(parsed.items || []);
+            setContiTitle(parsed.title || '');
+            setContiTitleFontSize(parsed.contiTitleFontSize || 48);
+            setShowContiNumbers(parsed.showContiNumbers !== undefined ? parsed.showContiNumbers : true);
+            setPaperSize(parsed.paperSize || 'A4');
+            setOrientation(parsed.orientation || 'portrait');
+            setItemsPerPage(parsed.itemsPerPage || 2);
+            setCurrentContiId(parsed.currentContiId || null);
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.error("Failed to load initial data", e);
+      }
+    };
+
+    window.addEventListener('gdrive_authenticated', init);
+    
+    import('../api/gdriveWebService').then(({ gdriveWebService }) => {
+      if (gdriveWebService.getAccessToken()) {
+        init();
+      }
+    });
+
+    return () => window.removeEventListener('gdrive_authenticated', init);
   }, []);
 
   // 콘티 변경 시 자동 저장 (마지막 작업물)
@@ -199,12 +241,17 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }));
   }, [contiItems, contiTitle, contiTitleFontSize, showContiNumbers, paperSize, orientation, itemsPerPage, currentContiId]);
 
-  // Handle Search & Album Filtering
+  // Sync hymnalService with songs
+  useEffect(() => {
+    hymnalService.setSongs(songs);
+  }, [songs]);
+
+  // Search and Filter Effect
   useEffect(() => {
     const timer = setTimeout(() => {
       let baseSongs = songs;
       if (activeAlbumId !== 'all') {
-        baseSongs = songs.filter(s => s.id.startsWith(`${activeAlbumId}-`));
+        baseSongs = songs.filter(s => s.albumId === activeAlbumId || s.id.startsWith(`${activeAlbumId}-`));
       }
       
       if (!searchQuery.trim()) {
@@ -214,7 +261,7 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         // Filter search results by active album if applicable
         const filtered = activeAlbumId === 'all' 
           ? results 
-          : results.filter((s: any) => s.id.startsWith(`${activeAlbumId}-`));
+          : results.filter((s: any) => s.albumId === activeAlbumId || s.id.startsWith(`${activeAlbumId}-`));
         setFilteredSongs(filtered as HymnalSong[]);
       }
     }, 200);
@@ -222,25 +269,43 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [searchQuery, songs, activeAlbumId]);
 
   // Album Methods
+  const ensureAuth = async () => {
+    if (!hymnalApi.getAccessToken()) {
+      if (!(await hymnalApi.login())) {
+        alert('구글 로그인(드라이브 권한)이 필요합니다.');
+        return false;
+      }
+    }
+    return true;
+  };
+
   const addAlbum = async (name: string) => {
+    if (!(await ensureAuth())) return;
     const result = await hymnalApi.addAlbum({ name, path: '' });
     if (result.success) {
       await reloadSettings();
       setActiveAlbumId(result.album.id);
+    } else {
+      alert('앨범 생성 실패: ' + result.error);
     }
   };
 
   const updateAlbum = async (album: Album) => {
+    if (!(await ensureAuth())) return;
     const result = await hymnalApi.updateAlbum(album);
     if (result.success) await reloadSettings();
+    else alert('수정 실패: ' + result.error);
   };
 
   const deleteAlbum = async (id: string) => {
+    if (!(await ensureAuth())) return;
     const result = await hymnalApi.deleteAlbum(id);
     if (result.success) {
       await reloadSettings();
       setActiveAlbumId('all');
       await fetchSongs();
+    } else {
+      alert('삭제 실패: ' + result.error);
     }
   };
 
@@ -501,7 +566,10 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       editingAlbum,
       setEditingAlbum,
       fetchSongs,
-      reloadSettings
+      reloadSettings,
+      setSongs,
+      setAlbums,
+      setContiItems
     }}>
       {children}
     </HymnalContext.Provider>

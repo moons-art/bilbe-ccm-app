@@ -1,129 +1,288 @@
-const isElectron = !!(window as any).ipcRenderer;
-const SERVER_BASE = 'http://localhost:8080';
-const API_BASE = `${SERVER_BASE}/api`;
-
-// 헬퍼: HTTP 요청용
-async function fetchApi(path: string, method = 'GET', body?: any) {
-  const options: RequestInit = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  };
-  if (body) options.body = JSON.stringify(body);
-  
-  const response = await fetch(`${API_BASE}${path}`, options);
-  if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
-  return response.json();
-}
+import { gdriveWebService } from './gdriveWebService';
 
 export const hymnalApi = {
-  // Album Management
-  getSettings: () => 
-    isElectron ? (window as any).ipcRenderer.hymnal.getSettings() : fetchApi('/get-settings'),
-  saveSettings: (settings: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.saveSettings(settings) : fetchApi('/save-settings', 'POST', settings),
-  addAlbum: (album: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.addAlbum(album) : fetchApi('/add-album', 'POST', album),
-  updateAlbum: (album: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.updateAlbum(album) : fetchApi('/update-album', 'POST', album),
-  deleteAlbum: (albumId: string) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.deleteAlbum(albumId) : fetchApi('/delete-album', 'POST', { id: albumId }),
-
-  getSongs: () => 
-    isElectron ? (window as any).ipcRenderer.hymnal.getSongs() : fetchApi('/get-songs'),
-  selectFolder: async () => {
-    if (isElectron) return (window as any).ipcRenderer.hymnal.selectFolder();
-    const data = await fetchApi('/select-folder', 'POST');
-    return data.path;
+  getSettings: async () => {
+    try {
+      const data = await gdriveWebService.downloadJsonFile('settings.json');
+      if (data && data.albums) {
+        return data;
+      }
+      throw new Error('No settings');
+    } catch (e) {
+      return { 
+        albums: [
+          { id: 'hymnal', name: '새찬송가', type: 'system' },
+          { id: 'misc', name: '기타파일앨범', type: 'system' }
+        ] 
+      };
+    }
   },
-  processImages: (args: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.processImages(args) : fetchApi('/process-images', 'POST', args),
   
-  onProgress: (callback: (data: { processed: number; total: number }) => void) => {
-    if (isElectron) {
-      return (window as any).ipcRenderer.hymnal.onProgress(callback);
-    } else {
-      let lastProcessed = -1;
-      const interval = setInterval(async () => {
-        try {
-          const progress = await fetchApi('/get-progress');
-          if (progress && progress.processed !== lastProcessed) {
-            callback(progress);
-            lastProcessed = progress.processed;
-          }
-        } catch (err) {
-          console.error('Progress polling error:', err);
+  saveSettings: async (settings: any) => {
+    try {
+      await gdriveWebService.uploadJsonFile('settings.json', settings);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  getSongs: async () => {
+    try {
+      const data = await gdriveWebService.downloadJsonFile('music_data.json');
+      if (data && data.length > 0) return data;
+      
+      try {
+        const defaultResponse = await fetch('/data/hymnal_default.json');
+        if (defaultResponse.ok) {
+          const defaultData = await defaultResponse.json();
+          await gdriveWebService.uploadJsonFile('music_data.json', defaultData).catch(() => {});
+          return defaultData;
         }
-      }, 500); // 0.5초마다 확인
-
-      return () => clearInterval(interval);
+      } catch (err) {
+        console.warn('Failed to load default hymnal data', err);
+      }
+      return [];
+    } catch (e) {
+      try {
+        const defaultResponse = await fetch('/data/hymnal_default.json');
+        if (defaultResponse.ok) {
+          return await defaultResponse.json();
+        }
+      } catch (err) {}
+      return [];
     }
   },
 
-  syncGDrive: (albumId?: string) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.syncGDrive(albumId) : fetchApi('/sync-gdrive', 'POST', { albumId }),
-  getAuthUrl: () => 
-    isElectron ? (window as any).ipcRenderer.hymnal.getAuthUrl() : fetchApi('/auth-url'),
-  waitForAuthCode: () => 
-    isElectron ? (window as any).ipcRenderer.hymnal.waitForAuthCode() : fetchApi('/wait-auth'),
-  confirmAuth: (code: string) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.confirmAuth(code) : fetchApi('/confirm-auth', 'POST', { code }),
-  
-  updateSong: (song: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.updateSong(song) : fetchApi('/update-song', 'POST', song),
-  deleteSong: (songId: string, shouldDeleteOriginal?: boolean) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.deleteSong({ songId, shouldDeleteOriginal }) : fetchApi('/delete-song', 'POST', { songId, shouldDeleteOriginal }),
-  
-  exportCSV: (args?: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.exportCSV(args) : fetchApi('/export-csv', 'POST', args),
-  importCSV: () => 
-    isElectron ? (window as any).ipcRenderer.hymnal.importCSV() : fetchApi('/import-csv', 'POST'),
-  
-  openExternal: (url: string) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.openExternal(url) : fetchApi('/open-external', 'POST', { url }),
-    
-  // Google Slides
-  generateSlides: (args: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.generateSlides(args) : fetchApi('/generate-slides', 'POST', args),
-  onSlidesProgress: (callback: (data: { msg: string; percent: number }) => void) => {
-    if (isElectron) {
-      return (window as any).ipcRenderer.hymnal.onSlidesProgress(callback);
-    }
-    return () => {}; // Web 환경은 차후 지원
+  addAlbum: async (album: any) => {
+    const settings = await hymnalApi.getSettings();
+    const newAlbum = { ...album, id: `album-${Date.now()}`, type: 'custom' };
+    settings.albums = settings.albums || [];
+    settings.albums.push(newAlbum);
+    const saveResult = await hymnalApi.saveSettings(settings);
+    if (!saveResult.success) return saveResult;
+    return { success: true, album: newAlbum };
   },
-    
-  generatePDF: (args: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.generatePDF(args) : fetchApi('/generate-pdf', 'POST', args),
-  onPDFProgress: (callback: (data: { msg: string; percent: number }) => void) => {
-    if (isElectron) {
-      return (window as any).ipcRenderer.hymnal.onPDFProgress(callback);
-    }
-    return () => {};
-  },
-    
-  // Conti Storage
-  getSavedContis: () => 
-    isElectron ? (window as any).ipcRenderer.hymnal.getSavedContis() : fetchApi('/get-saved-contis'),
-  saveConti: (conti: any) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.saveConti(conti) : fetchApi('/save-conti', 'POST', conti),
-  deleteSavedConti: (id: string) => 
-    isElectron ? (window as any).ipcRenderer.hymnal.deleteSavedConti(id) : fetchApi('/delete-saved-conti', 'POST', { id }),
 
-  resizeWindow: (width: number, height: number) =>
-    isElectron ? (window as any).ipcRenderer.hymnal.resizeWindow(width, height) : fetchApi('/resize-window', 'POST', { width, height }),
+  updateAlbum: async (album: any) => {
+    const settings = await hymnalApi.getSettings();
+    const idx = settings.albums.findIndex((a: any) => a.id === album.id);
+    if (idx !== -1) {
+      settings.albums[idx] = album;
+      const saveResult = await hymnalApi.saveSettings(settings);
+      if (!saveResult.success) return saveResult;
+      return { success: true };
+    }
+    return { success: false, error: '앨범을 찾을 수 없습니다.' };
+  },
+
+  deleteAlbum: async (id: string) => {
+    const settings = await hymnalApi.getSettings();
+    settings.albums = settings.albums.filter((a: any) => a.id !== id);
+    const saveResult = await hymnalApi.saveSettings(settings);
+    if (!saveResult.success) return saveResult;
+    return { success: true };
+  },
+
+  updateSong: async (song: any) => {
+    const songs = await hymnalApi.getSongs();
+    const idx = songs.findIndex((s: any) => s.id === song.id);
+    if (idx !== -1) {
+      songs[idx] = { ...songs[idx], ...song };
+      try {
+        await gdriveWebService.uploadJsonFile('music_data.json', songs);
+        return { success: true };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    }
+    return { success: false, error: '곡을 찾을 수 없습니다.' };
+  },
+
+  deleteSong: async (songId: string, shouldDeleteOriginal?: boolean) => {
+    let songs = await hymnalApi.getSongs();
+    songs = songs.filter((s: any) => s.id !== songId);
+    try {
+      await gdriveWebService.uploadJsonFile('music_data.json', songs);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  getSavedContis: async () => {
+    try {
+      const data = await gdriveWebService.downloadJsonFile('saved_contis.json');
+      return data || [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  saveConti: async (conti: any) => {
+    try {
+      const contis = await hymnalApi.getSavedContis();
+      const idx = contis.findIndex((c: any) => c.id === conti.id);
+      if (idx !== -1) {
+        contis[idx] = { ...contis[idx], ...conti, updatedAt: new Date().toISOString() };
+      } else {
+        contis.push({ ...conti, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      }
+      await gdriveWebService.uploadJsonFile('saved_contis.json', contis);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  deleteSavedConti: async (id: string) => {
+    try {
+      let contis = await hymnalApi.getSavedContis();
+      contis = contis.filter((c: any) => c.id !== id);
+      await gdriveWebService.uploadJsonFile('saved_contis.json', contis);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  resolveImagePath: (fileId: string) => {
+    return `https://drive.google.com/uc?id=${fileId}`;
+  },
+
+  resizeWindow: (width: number, height: number) => {
+    console.log(`[WebApp] resizeWindow ignored.`);
+  },
+
+  openExternal: (url: string) => {
+    window.open(url, '_blank');
+  },
 
   writeClipboard: (text: string) => {
-    if (isElectron) {
-      (window as any).ipcRenderer.hymnal.writeClipboard(text);
-    } else {
-      navigator.clipboard.writeText(text).catch(err => console.error('Clipboard error:', err));
-    }
+    navigator.clipboard.writeText(text).catch(err => console.error(err));
   },
 
-  // 유틸리티: 이미지 경로 변환
-  resolveImagePath: (filePath: string) => {
-    // hymnal-resource 프로토콜 대신, 항상 통합된 로컬 서버(8080) 리소스를 활용하도록 수정
-    return `${SERVER_BASE}/resource/${filePath}`;
+  processImages: async (args: any) => {
+    return { processed: 0 };
+  },
+
+  onProgress: (callback: any) => {
+    return () => {};
+  },
+
+  selectFileForConti: () => {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e: any) => {
+        if (e.target.files && e.target.files.length > 0) {
+          resolve(e.target.files[0]);
+        } else {
+          resolve(null);
+        }
+      };
+      input.click();
+    });
+  },
+
+  selectFolderForAlbum: (): Promise<File[]> => {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.webkitdirectory = true;
+      (input as any).directory = true;
+      input.multiple = true;
+      input.onchange = (e: any) => {
+        resolve(e.target.files ? Array.from(e.target.files) : []);
+      };
+      input.click();
+    });
+  },
+
+  selectMultipleFiles: (): Promise<File[]> => {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.multiple = true;
+      input.onchange = (e: any) => {
+        resolve(e.target.files ? Array.from(e.target.files) : []);
+      };
+      input.click();
+    });
+  },
+
+  batchUploadImagesToGDrive: async (
+    files: File[], 
+    albumName: string, 
+    onProgress: (processed: number, total: number) => void
+  ) => {
+    const { compressImageToWebP, uploadImageToGDrive } = await import('../utils/imageProcessor');
+    const folderId = await gdriveWebService.getOrCreateFolder(`CEUM_Album_${albumName}`);
+
+    const uploadedSongs = [];
+    let processedCount = 0;
+
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      try {
+        const compressedBlob = await compressImageToWebP(file, 0.85);
+        const fileName = file.name.replace(/\.[^/.]+$/, "");
+        const fileId = await uploadImageToGDrive(compressedBlob, `${fileName}.webp`, folderId);
+
+        const numMatch = fileName.match(/\d+/);
+        const number = numMatch ? parseInt(numMatch[0], 10) : uploadedSongs.length + 1;
+
+        uploadedSongs.push({
+          id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          title: fileName,
+          number: number,
+          albumId: albumName === '새찬송가' ? 'hymnal' : albumName,
+          type: 'image',
+          fileId: fileId,
+          searchTokens: [fileName]
+        });
+      } catch (err) {
+        console.error(`Failed to upload ${file.name}`, err);
+      }
+      processedCount++;
+      onProgress(processedCount, files.length);
+    }
+    return uploadedSongs;
+  },
+
+  uploadSingleImagesToGDrive: async (
+    files: File[], 
+    onProgress: (processed: number, total: number) => void
+  ) => {
+    const { compressImageToWebP, uploadImageToGDrive } = await import('../utils/imageProcessor');
+    const uploadedSongs = [];
+    let processedCount = 0;
+
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      try {
+        const compressedBlob = await compressImageToWebP(file, 0.85);
+        const fileName = file.name.replace(/\.[^/.]+$/, "");
+        const fileId = await uploadImageToGDrive(compressedBlob, `${fileName}.webp`);
+
+        uploadedSongs.push({
+          id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          title: fileName,
+          number: uploadedSongs.length + 1,
+          albumId: 'misc',
+          type: 'image',
+          fileId: fileId,
+          searchTokens: [fileName]
+        });
+      } catch (err) {
+        console.error(`Failed to upload ${file.name}`, err);
+      }
+      processedCount++;
+      onProgress(processedCount, files.length);
+    }
+    return uploadedSongs;
   }
 };

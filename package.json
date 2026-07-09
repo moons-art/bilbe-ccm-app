@@ -7,64 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "package": "npm run build && electron-builder",
-    "dist": "npm run build && electron-builder --mac --arm64 --x64",
-    "dist:win": "npm run build && electron-builder --win --arm64 --x64"
-  },
-  "build": {
-    "appId": "com.ceum.bibletool",
-    "productName": "CEUM BIBLE Tool",
-    "compression": "maximum",
-    "asar": true,
-    "directories": {
-      "output": "release/${version}"
-    },
-    "files": [
-      "dist",
-      "dist-electron"
-    ],
-    "extraResources": [
-      "hymnal_master_data.xlsx",
-      "[CEUM]_설치_및_사용가이드.txt",
-      "public/data/**/*"
-    ],
-    "mac": {
-      "target": [
-        "dmg"
-      ],
-      "icon": "public/icon.png",
-      "artifactName": "ceum_bible_ccm_${version}_${arch}.${ext}"
-    },
-    "dmg": {
-      "title": "CEUM BIBLE Tool",
-      "artifactName": "ceum_bible_ccm_${version}_${arch}.${ext}",
-      "contents": [
-        {
-          "x": 448,
-          "y": 160,
-          "type": "link",
-          "path": "/Applications"
-        },
-        {
-          "x": 192,
-          "y": 160,
-          "type": "file"
-        },
-        {
-          "x": 320,
-          "y": 280,
-          "type": "file",
-          "path": "[CEUM]_설치_및_사용가이드.txt"
-        }
-      ]
-    },
-    "win": {
-      "target": [
-        "portable"
-      ],
-      "icon": "public/icon.png"
-    }
+    "preview": "vite preview"
   },
   "dependencies": {
     "@types/sharp": "^0.31.1",
@@ -90,8 +33,6 @@
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.27",
     "concurrently": "^9.2.1",
-    "electron": "^41.1.0",
-    "electron-builder": "^26.8.1",
     "esbuild": "^0.27.4",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -103,8 +44,6 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
     "vite": "^8.0.1",
-    "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.6",
     "wait-on": "^9.0.4"
   }
 }

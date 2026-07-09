@@ -33,6 +33,7 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showMemo, setShowMemo] = useState(true);
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({});
+  const [blobUrls, setBlobUrls] = useState<Record<string, string>>({});
 
   const handleNext = useCallback(() => {
     if (currentIndex < visibleItems.length - 1) {
@@ -146,6 +147,20 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
   
   const currentImageRatio = imageRatios[currentItem.id] || 1; // 가로/세로 비율 (디폴트 1)
   const finalAspectRatio = currentImageRatio * (visibleWidthFactor / visibleHeightFactor);
+
+  useEffect(() => {
+    if (!currentSong) return;
+    const fileId = currentSong.fileId || currentSong.filePath || currentSong.filename;
+    if (fileId && fileId.length > 20 && !fileId.startsWith('/') && !blobUrls[currentSong.id]) {
+      import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
+        gdriveWebService.getFileBlob(fileId).then(blob => {
+          if (blob) {
+            setBlobUrls(prev => ({ ...prev, [currentSong.id]: URL.createObjectURL(blob) }));
+          }
+        });
+      });
+    }
+  }, [currentSong, blobUrls]);
 
   return (
     <>
@@ -274,24 +289,31 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
                   style={{ height: '100vh', width: 'auto' }}
                 />
 
-                <img 
-                  src={hymnalApi.resolveImagePath(currentSong?.filePath || currentSong?.filename || '')} 
-                  className="absolute block max-w-none top-0 left-0" 
-                  onLoad={(e) => { 
-                    const img = e.currentTarget;
-                    const ratio = img.naturalWidth / img.naturalHeight;
-                    setImageRatios(prev => ({
-                      ...prev,
-                      [currentItem.id]: ratio
-                    })); 
-                  }} 
-                  style={{ 
-                    width: `${100 / visibleWidthFactor}%`, 
-                    left: `-${(crop.left / visibleWidthFactor)}%`, 
-                    top: `-${(crop.top / visibleHeightFactor)}%` 
-                  }} 
-                  draggable={false} 
-                />
+                {(!blobUrls[currentSong?.id || ''] && (currentSong?.fileId || currentSong?.filePath)?.length > 20 && !(currentSong?.fileId || currentSong?.filePath)?.startsWith('/')) ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900 text-white">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
+                    <span className="text-sm font-bold opacity-70">구글 드라이브 원본을 불러오는 중...</span>
+                  </div>
+                ) : (
+                  <img 
+                    src={blobUrls[currentSong?.id || ''] || hymnalApi.resolveImagePath(currentSong?.filePath || currentSong?.filename || '')} 
+                    className="absolute block max-w-none top-0 left-0" 
+                    onLoad={(e) => { 
+                      const img = e.currentTarget;
+                      const ratio = img.naturalWidth / img.naturalHeight;
+                      setImageRatios(prev => ({
+                        ...prev,
+                        [currentItem.id]: ratio
+                      })); 
+                    }} 
+                    style={{ 
+                      width: `${100 / visibleWidthFactor}%`, 
+                      left: `-${(crop.left / visibleWidthFactor)}%`, 
+                      top: `-${(crop.top / visibleHeightFactor)}%` 
+                    }} 
+                    draggable={false} 
+                  />
+                )}
               </div>
             </motion.div>
           </AnimatePresence>

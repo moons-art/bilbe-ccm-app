@@ -3,27 +3,12 @@ import { useHymnal } from '../../stores/HymnalProvider';
 import type { ContiItem } from '../../stores/HymnalProvider';
 import { hymnalApi } from '../../api/hymnalApi';
 import { 
-  Trash2, 
-  RotateCcw,
-  Layout,
-  CheckCircle2,
-  ChevronLeft,
-  Scissors,
-  Check,
-  Search,
-  Hash,
-  StickyNote,
-  GripVertical,
-  Save,
-  Library,
-  X,
-  Calendar,
-  ChevronRight,
-  Download,
-  Plus,
-  Minus,
-  DoorOpen
+  Plus, Minus, Trash2, Maximize2, Type, Move, ZoomIn, Scissors, Save, X, RotateCcw, Image as ImageIcon, 
+  StickyNote, LayoutTemplate, Printer, Share2, Search, Library, FileUp,
+  ChevronLeft, ChevronRight, GripVertical, Download, ImagePlus, Calendar, Hash, Layout, CheckCircle2, Check, DoorOpen
 } from 'lucide-react';
+import { compressImageToWebP, uploadImageToGDrive } from '../../utils/imageProcessor';
+import { gdriveWebService } from '../../api/gdriveWebService';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { SavedContisModal } from './SavedContisModal';
 import { LeaderViewer } from './LeaderViewer';
@@ -77,7 +62,7 @@ const SmoothSlider = memo(({
 });
 
 // --- Memoized Individual Item Component ---
-const DraggableContiItem = memo(({ 
+const DraggableContiItem = React.memo(({ 
   item, 
   song, 
   isSelected, 
@@ -91,28 +76,35 @@ const DraggableContiItem = memo(({
   onUpdate,
   onRemove,
   onCropEdit
-}: {
-  item: ContiItem;
-  song: any;
-  isSelected: boolean;
-  canvasWidth: number;
-  canvasHeight: number;
-  isPreviewMode: boolean;
-  showContiNumbers: boolean;
-  index: number;
-  canvasRef: React.RefObject<HTMLDivElement>;
-  onSelect: (id: string) => void;
-  onUpdate: (id: string, updates: Partial<ContiItem>) => void;
-  onRemove: (id: string) => void;
-  onCropEdit: (id: string) => void;
-}) => {
-  const [imageRatio, setImageRatio] = useState(1);
+}: any) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const [imageRatio, setImageRatio] = useState(1.414); // A4 ratio default
+  const [localMemo, setLocalMemo] = useState(item.memo || '');
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  // 로컬 상태와 동기화
+  useEffect(() => { setLocalMemo(item.memo || ''); }, [item.memo]);
+
+  // 구글 드라이브 이미지의 경우 안전하게 Blob으로 직접 다운로드하여 렌더링
+  useEffect(() => {
+    const fileId = song?.fileId || song?.filePath || song?.filename;
+    // 구글 드라이브 ID는 보통 20자 이상. 로컬 경로나 번호가 아닐 때만 시도
+    if (fileId && fileId.length > 20 && !fileId.startsWith('/')) {
+      import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
+        gdriveWebService.downloadImageBlob(fileId).then(url => {
+          if (url) setBlobUrl(url);
+        });
+      });
+    }
+    return () => {
+      // 언마운트 시 메모리 해제
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [song?.filePath, song?.filename]);
+
   const crop = item.crop || { top: 0, bottom: 0, left: 0, right: 0 };
   const visibleWidthFactor = (100 - crop.left - crop.right) / 100;
   const visibleHeightFactor = (100 - crop.top - crop.bottom) / 100;
-
-  const [localMemo, setLocalMemo] = useState(item.memo || '');
-  useEffect(() => { setLocalMemo(item.memo || ''); }, [item.memo]);
 
   return (
     <motion.div
@@ -197,7 +189,7 @@ const DraggableContiItem = memo(({
 
        <div className="relative w-full overflow-hidden rounded-sm ring-1 ring-slate-200 bg-white" style={{ aspectRatio: `${imageRatio * (visibleWidthFactor / visibleHeightFactor)}` }}>
           <img 
-            src={hymnalApi.resolveImagePath(song?.filePath || song?.filename || '')} 
+            src={blobUrl || hymnalApi.resolveImagePath(song?.filePath || song?.filename || '')} 
             className="absolute block max-w-none" 
             onLoad={(e) => { setImageRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight); }} 
             style={{ width: `${100 / visibleWidthFactor}%`, left: `-${(crop.left / visibleWidthFactor)}%`, top: `-${(crop.top / visibleHeightFactor)}%` }} 
@@ -240,6 +232,18 @@ const CropEditor: React.FC<{
   const [crop, setCrop] = useState(item.crop || { top: 0, bottom: 0, left: 0, right: 0 });
   const [zoom, setZoom] = useState(item.width);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fileId = song?.fileId || song?.filePath || song?.filename;
+    if (fileId && fileId.length > 20 && !fileId.startsWith('/')) {
+      import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
+        gdriveWebService.getFileBlob(fileId).then(blob => {
+          if (blob) setBlobUrl(URL.createObjectURL(blob));
+        });
+      });
+    }
+  }, [song]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -265,7 +269,14 @@ const CropEditor: React.FC<{
 
         <div ref={containerRef} className="relative w-[80vw] h-[70vh] flex items-center justify-center overflow-hidden">
             <div className="relative transition-transform duration-200 ease-out" style={{ width: `${zoom}%` }}>
-               <img src={hymnalApi.resolveImagePath(song?.filePath || song?.filename || '')} className="w-full h-auto block select-none pointer-events-none" alt="preview" />
+               {(!blobUrl && (song?.fileId || song?.filePath)?.length > 20 && !(song?.fileId || song?.filePath)?.startsWith('/')) ? (
+                 <div className="w-full h-64 flex flex-col items-center justify-center bg-white/5 rounded-xl border border-white/10 text-white">
+                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mb-2"></div>
+                   <span className="text-sm font-bold opacity-70">구글 드라이브 원본을 불러오는 중...</span>
+                 </div>
+               ) : (
+                 <img src={blobUrl || hymnalApi.resolveImagePath(song?.filePath || song?.filename || '')} className="w-full h-auto block select-none pointer-events-none" alt="preview" />
+               )}
                
                {/* Dimmed Area */}
                <div className="absolute inset-0 pointer-events-none">
@@ -412,8 +423,11 @@ export const ContiEditor: React.FC = () => {
     clearConti, songs, contiTitleFontSize, setContiTitleFontSize,
     reorderContiItems, showContiNumbers, setShowContiNumbers,
     isLibraryOpen, setIsLibraryOpen,
-    savedContis, saveCurrentConti, loadSavedConti, deleteSavedConti
+    savedContis, saveCurrentConti, loadSavedConti, deleteSavedConti,
+    setSongs, setContiItems
   } = useHymnal();
+  
+  const [isUploading, setIsUploading] = useState(false);
 
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [cropEditingId, setCropEditingId] = useState<string | null>(null);
@@ -429,6 +443,72 @@ export const ContiEditor: React.FC = () => {
 
   const editingItem = contiItems.find(i => i.id === cropEditingId);
   const editingSong = editingItem ? songs.find(s => s.id === editingItem.songId) : null;
+
+  const handleAddExternalFile = async () => {
+    try {
+      // 1. User Activation 유실 방지를 위해 파일 선택 창을 가장 먼저 띄움
+      const file = await hymnalApi.selectFileForConti() as File;
+      if (!file) return;
+
+      // 2. 그 후 구글 인증 체크
+      const token = hymnalApi.getAccessToken();
+      if (!token) {
+        const loggedIn = await hymnalApi.login();
+        if (!loggedIn) {
+          alert('구글 로그인(드라이브 접근 권한)이 필요합니다.');
+          return;
+        }
+      }
+
+      setIsUploading(true);
+      
+      // 1. 이미지 WEBP 고화질 압축
+      const compressedBlob = await compressImageToWebP(file);
+      
+      // 2. 구글 드라이브 즉시 업로드
+      // (TODO: 실제 구글 드라이브 연동 후 폴더 ID 맵핑 필요)
+      const fileId = await uploadImageToGDrive(compressedBlob, file.name || 'External Image');
+      
+      // 3. 새로운 임시 곡 데이터 생성
+      const newSongId = `external-${Date.now()}`;
+      const newSong = {
+        id: newSongId,
+        number: 0,
+        title: '외부 파일: ' + (file.name || '새 악보'),
+        filename: fileId, // 드라이브 File ID
+        filePath: fileId,
+        isManual: true,
+      };
+
+      // 4. 전역 곡 리스트에 추가 후 콘티에 삽입
+      if (setSongs) {
+        setSongs(prev => [...prev, newSong]);
+      }
+      
+      // 5. 새 콘티 아이템 직접 추가 및 즉시 캔버스 표시
+      const newItemId = `conti-${Date.now()}`;
+      setContiItems(prev => [...prev, {
+        id: newItemId,
+        songId: newSongId,
+        x: 40,
+        y: 40,
+        width: 30, // 기본 넓이 30%
+        height: 0,
+        memo: '',
+        memoFontSize: 12,
+        isMemoOpen: false,
+        page: 1,
+        order: prev.length + 1,
+        isVisible: true // 즉시 캔버스에 표시
+      }]);
+
+      alert('파일이 콘티에 추가 되었습니다.');
+    } catch (e: any) {
+      alert('업로드 실패: ' + e.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`fixed inset-0 z-[9999] flex flex-col overflow-hidden select-none transition-colors duration-500 ${isPreviewMode ? 'bg-slate-50' : 'bg-slate-950'}`}>
@@ -450,6 +530,25 @@ export const ContiEditor: React.FC = () => {
               onClose={() => setIsLeaderViewerOpen(false)} 
               onOpenLibrary={() => setIsLibraryOpen(true)}
             />
+          )}
+        </AnimatePresence>
+
+        {/* 미리보기 종료 버튼 (플로팅) */}
+        <AnimatePresence>
+          {isPreviewMode && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="fixed top-8 left-1/2 -translate-x-1/2 z-[10000] no-print"
+            >
+              <button
+                onClick={() => setIsPreviewMode(false)}
+                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-black shadow-2xl flex items-center gap-2 transition-all active:scale-95"
+              >
+                미리보기 닫기
+              </button>
+            </motion.div>
           )}
         </AnimatePresence>
 
@@ -482,6 +581,10 @@ export const ContiEditor: React.FC = () => {
               </div>
 
               <div className="w-px h-6 bg-slate-200 mx-1" />
+
+              <button disabled={isUploading} onClick={handleAddExternalFile} className={`px-4 py-2 rounded-lg text-xs font-black text-slate-600 flex items-center gap-2 transition-all border border-slate-200 shadow-sm active:scale-95 ${isUploading ? 'bg-slate-100 opacity-50 cursor-not-allowed' : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'}`}>
+                <ImagePlus className="w-4 h-4" /> {isUploading ? '업로드 중...' : '사진/파일 직접 추가'}
+              </button>
 
               <button onClick={() => setIsLibraryOpen(true)} className="px-4 py-2 bg-white hover:bg-slate-50 rounded-lg text-xs font-black text-slate-600 flex items-center gap-2 transition-all border border-slate-200 shadow-sm active:scale-95">
                 <Library className="w-4 h-4 text-slate-400" /> 저장소

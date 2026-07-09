@@ -5,7 +5,7 @@ import { BibleParser } from '../services/bibleParser';
 import type { BibleVersion } from '../types/bible';
 
 interface FileUploaderProps {
-  onUploadSuccess: (version: BibleVersion) => void;
+  onUploadSuccess: (version: BibleVersion, rawContent?: string) => void;
 }
 
 export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess }) => {
@@ -20,12 +20,12 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess }) =
     try {
       const isPdf = file.name.toLowerCase().endsWith('.pdf');
       let version;
+      let content;
 
       if (isPdf) {
         throw new Error("PDF 파싱 기능은 현재 준비 중입니다. 텍스트(.txt) 형식의 성경 파일을 이용해 주세요.");
       } else {
         const buffer = await file.arrayBuffer();
-        let content;
         
         // Try UTF-8 first
         const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
@@ -44,7 +44,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUploadSuccess }) =
         throw new Error("성경 구절을 인식하지 못했습니다. 파일 형식이 '창1:1 본문'과 같은 형태인지 확인해 주세요.");
       }
 
-      onUploadSuccess(version);
+      onUploadSuccess(version, content);
     } catch (err) {
       setError(err instanceof Error ? err.message : "파일 처리 중 오류가 발생했습니다.");
     } finally {

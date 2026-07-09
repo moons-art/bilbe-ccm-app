@@ -26,6 +26,33 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { SavedContisModal } from './SavedContisModal';
 import { hymnalApi } from '../../api/hymnalApi';
 
+const DriveImage = ({ fileId, alt, className }: { fileId: string, alt?: string, className?: string }) => {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!fileId) return;
+    
+    // Check if it's already a full URL or local path
+    if (fileId.startsWith('http') || fileId.startsWith('/')) {
+      setSrc(fileId);
+      return;
+    }
+
+    import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
+      gdriveWebService.downloadImageBlob(fileId).then(blobUrl => {
+        if (active && blobUrl) setSrc(blobUrl);
+      });
+    });
+    
+    return () => { active = false; };
+  }, [fileId]);
+
+  if (!src) return <div className="w-full h-48 flex items-center justify-center bg-slate-100 text-slate-400">로딩 중...</div>;
+  
+  return <img src={src} alt={alt} className={className} draggable={false} />;
+};
+
 export const HymnalModule: React.FC = () => {
     const { 
       filteredSongs, 
@@ -585,11 +612,10 @@ export const HymnalModule: React.FC = () => {
                     boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.08)'
                   }}
                 >
-                    <img 
-                      src={hymnalApi.resolveImagePath(selectedSong?.filePath || selectedSong?.filename || '')} 
+                    <DriveImage 
+                      fileId={selectedSong?.fileId || selectedSong?.filePath || ''} 
                       alt={selectedSong?.title}
                       className="w-full h-auto block" 
-                      draggable={false}
                     />
                   </div>
                 </div>
@@ -743,24 +769,21 @@ export const HymnalModule: React.FC = () => {
                   />
                 </div>
 
-                {editingAlbum && (
-                  <button 
-                    onClick={() => updateAlbumPath(editingAlbum.id)}
-                    className="w-full flex items-center justify-between p-5 bg-slate-50 border border-dashed border-slate-300 rounded-2xl hover:border-red-400 hover:bg-red-50 transition-all group"
-                  >
-                    <div className="text-left">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">현재 연결된 폴더</p>
-                      <p className="text-xs font-bold text-slate-600 truncate max-w-[200px]">{editingAlbum.path || '폴더 미지정'}</p>
-                    </div>
-                    <Settings className="w-5 h-5 text-slate-400 group-hover:text-red-500" />
-                  </button>
-                )}
 
                 <div className="flex gap-3 pt-4">
                   <button 
-                    onClick={() => {
-                      if (editingAlbum) updateAlbum({ ...editingAlbum, name: albumInput });
-                      else addAlbum(albumInput);
+                    onClick={async () => {
+                      if (editingAlbum) {
+                        const oldName = editingAlbum.name;
+                        updateAlbum({ ...editingAlbum, name: albumInput });
+                        // Google Drive 폴더 이름 변경 로직 호출 (옵션)
+                        const { gdriveWebService } = await import('../../api/gdriveWebService');
+                        try {
+                          await gdriveWebService.renameFolder(`CEUM_Album_${oldName}`, `CEUM_Album_${albumInput}`);
+                        } catch(e) { console.log('Folder rename skipped or failed', e); }
+                      } else {
+                        addAlbum(albumInput);
+                      }
                       setShowAlbumModal(false);
                     }}
                     className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black shadow-xl shadow-red-200 hover:bg-red-700 transition-all active:scale-95"
