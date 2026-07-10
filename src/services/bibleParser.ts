@@ -31,93 +31,114 @@ export class BibleParser {
     const headerPattern = /^\[?\s*([1-3]?(?:[가-힣]+|[a-zA-Z\s]+?))\s+(\d+)\s*\]?$/; // Matches [Genesis 1] or Genesis 1
     const dotVersePattern = /^(\d+)\.(.*)/; // Matches 1.In the beginning
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+    // 메인 스레드 프리징 방지를 위한 비동기 청크 파싱 (아이패드 튕김 완벽 해결)
+    const CHUNK_SIZE = 1000;
+    let currentIndex = 0;
 
-      let chapter, verse, title, text;
-
-      // Try Header Pattern [Genesis 1] or Genesis 1
-      const headerMatch = trimmed.match(headerPattern);
-      if (headerMatch) {
-        const rawBookName = headerMatch[1]?.trim();
-        let bookName = rawBookName?.normalize('NFC');
-        if (bookName?.endsWith('.')) bookName = bookName.slice(0, -1);
+    await new Promise<void>((resolve) => {
+      const processChunk = () => {
+        const chunkEnd = Math.min(currentIndex + CHUNK_SIZE, lines.length);
         
-        const bookId = BIBLE_BOOKS[bookName] || BIBLE_BOOKS[bookName.charAt(0).toUpperCase() + bookName.slice(1).toLowerCase()] || BIBLE_BOOKS[bookName.toUpperCase()];
-        if (bookId) {
-          lastBookId = bookId;
-          lastBookName = bookName;
-        }
-        currentChapter = parseInt(headerMatch[2], 10);
-        continue;
-      }
+        for (let i = currentIndex; i < chunkEnd; i++) {
+          const line = lines[i];
+          const trimmed = line.trim();
+          if (!trimmed) continue;
 
-      const matchWith = trimmed.match(patternWithBook);
-      if (matchWith) {
-        const rawBookName = matchWith[1]?.trim();
-        let bookName = rawBookName?.normalize('NFC');
-        chapter = matchWith[2];
-        verse = matchWith[3];
-        title = matchWith[4];
-        text = matchWith[5]?.trim();
+          let chapter, verse, title, text;
 
-        // Normalize book name: Gen. -> Gen
-        if (bookName?.endsWith('.')) {
-          bookName = bookName.slice(0, -1);
-        }
+          // Try Header Pattern [Genesis 1] or Genesis 1
+          const headerMatch = trimmed.match(headerPattern);
+          if (headerMatch) {
+            const rawBookName = headerMatch[1]?.trim();
+            let bookName = rawBookName?.normalize('NFC');
+            if (bookName?.endsWith('.')) bookName = bookName.slice(0, -1);
+            
+            const bookId = BIBLE_BOOKS[bookName] || BIBLE_BOOKS[bookName.charAt(0).toUpperCase() + bookName.slice(1).toLowerCase()] || BIBLE_BOOKS[bookName.toUpperCase()];
+            if (bookId) {
+              lastBookId = bookId;
+              lastBookName = bookName;
+            }
+            currentChapter = parseInt(headerMatch[2], 10);
+            continue;
+          }
 
-        const bookId = BIBLE_BOOKS[bookName] || BIBLE_BOOKS[bookName.charAt(0).toUpperCase() + bookName.slice(1).toLowerCase()] || BIBLE_BOOKS[bookName.toUpperCase()];
-        if (bookId) {
-          lastBookId = bookId;
-          lastBookName = bookName;
-        }
-        if (chapter) currentChapter = parseInt(chapter, 10);
-      } else {
-        const matchNo = trimmed.match(patternNoBook);
-        if (matchNo) {
-          chapter = matchNo[1];
-          verse = matchNo[2];
-          title = matchNo[3];
-          text = matchNo[4]?.trim();
-          if (chapter) currentChapter = parseInt(chapter, 10);
-        } else {
-          // Check for "1.In the beginning"
-          const dotMatch = trimmed.match(dotVersePattern);
-          if (dotMatch) {
-            verse = dotMatch[1];
-            text = dotMatch[2]?.trim();
-            chapter = currentChapter.toString();
-          } else {
-            // Check for "1장" or similar
-            const chapterMatch = trimmed.match(chapterPattern);
-            if (chapterMatch) {
-              currentChapter = parseInt(chapterMatch[1], 10);
-              continue; 
+          const matchWith = trimmed.match(patternWithBook);
+          if (matchWith) {
+            const rawBookName = matchWith[1]?.trim();
+            let bookName = rawBookName?.normalize('NFC');
+            chapter = matchWith[2];
+            verse = matchWith[3];
+            title = matchWith[4];
+            text = matchWith[5]?.trim();
+
+            // Normalize book name: Gen. -> Gen
+            if (bookName?.endsWith('.')) {
+              bookName = bookName.slice(0, -1);
             }
 
-            // Check for "1 본문"
-            const verseMatch = trimmed.match(verseOnlyPattern);
-            if (verseMatch) {
-              verse = verseMatch[1];
-              text = verseMatch[2]?.trim();
-              chapter = currentChapter.toString();
+            const bookId = BIBLE_BOOKS[bookName] || BIBLE_BOOKS[bookName.charAt(0).toUpperCase() + bookName.slice(1).toLowerCase()] || BIBLE_BOOKS[bookName.toUpperCase()];
+            if (bookId) {
+              lastBookId = bookId;
+              lastBookName = bookName;
+            }
+            if (chapter) currentChapter = parseInt(chapter, 10);
+          } else {
+            const matchNo = trimmed.match(patternNoBook);
+            if (matchNo) {
+              chapter = matchNo[1];
+              verse = matchNo[2];
+              title = matchNo[3];
+              text = matchNo[4]?.trim();
+              if (chapter) currentChapter = parseInt(chapter, 10);
+            } else {
+              // Check for "1.In the beginning"
+              const dotMatch = trimmed.match(dotVersePattern);
+              if (dotMatch) {
+                verse = dotMatch[1];
+                text = dotMatch[2]?.trim();
+                chapter = currentChapter.toString();
+              } else {
+                // Check for "1장" or similar
+                const chapterMatch = trimmed.match(chapterPattern);
+                if (chapterMatch) {
+                  currentChapter = parseInt(chapterMatch[1], 10);
+                  continue; 
+                }
+
+                // Check for "1 본문"
+                const verseMatch = trimmed.match(verseOnlyPattern);
+                if (verseMatch) {
+                  verse = verseMatch[1];
+                  text = verseMatch[2]?.trim();
+                  chapter = currentChapter.toString();
+                }
+              }
             }
           }
-        }
-      }
 
-      if (chapter && verse) {
-        verses.push({
-          bookId: lastBookId,
-          bookName: lastBookName,
-          chapter: parseInt(chapter, 10),
-          verse: parseInt(verse, 10),
-          title: title?.trim(),
-          content: text || ''
-        });
-      }
-    }
+          if (chapter && verse) {
+            verses.push({
+              bookId: lastBookId,
+              bookName: lastBookName,
+              chapter: parseInt(chapter, 10),
+              verse: parseInt(verse, 10),
+              title: title?.trim(),
+              content: text || ''
+            });
+          }
+        }
+
+        currentIndex = chunkEnd;
+        if (currentIndex < lines.length) {
+          // 브라우저 렌더링 양보
+          setTimeout(processChunk, 0);
+        } else {
+          resolve();
+        }
+      };
+
+      processChunk();
+    });
 
     return {
       id: crypto.randomUUID(),

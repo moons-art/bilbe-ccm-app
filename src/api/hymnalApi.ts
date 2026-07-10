@@ -59,16 +59,21 @@ export const hymnalApi = {
       }
 
       // 찬송가 정적 곡 목록에 실시간 스캔된 구글 파일 ID를 매핑 (찬송가 악보 정상 노출 및 PDF 빌드 정상화 보장)
-      const mappedHymnalSongs = hymnalSongs.map((song: any) => {
-        const matchedFile = hymnalDriveFiles.find((file: any) => {
-          const numMatch = file.name.match(/\d+/);
-          const fileNum = numMatch ? parseInt(numMatch[0], 10) : -1;
-          return fileNum === song.number;
-        });
+      // O(N^2) 정규식 반복문에서 발생하는 엄청난 랙(PC 버벅임, 아이패드 멈춤/팅김 현상)을 해결하기 위해
+      // 미리 파일 번호를 파싱하여 O(1) 맵으로 만듦
+      const hymnalFileMap = new Map<number, string>();
+      hymnalDriveFiles.forEach((file: any) => {
+        const numMatch = file.name.match(/\d+/);
+        if (numMatch) {
+          const fileNum = parseInt(numMatch[0], 10);
+          hymnalFileMap.set(fileNum, file.id);
+        }
+      });
 
+      const mappedHymnalSongs = hymnalSongs.map((song: any) => {
         return {
           ...song,
-          fileId: matchedFile ? matchedFile.id : undefined
+          fileId: hymnalFileMap.get(song.number)
         };
       });
 

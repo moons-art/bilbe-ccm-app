@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { BibleProvider } from './stores/BibleProvider';
 import { useBible } from './stores/BibleContext';
 import { HymnalProvider, useHymnal } from './stores/HymnalProvider';
@@ -19,6 +20,7 @@ import { MobilePdfLayout } from './components/Hymnal/MobilePdfLayout';
 const TooltipIcon = ({ text }: { text: string }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
@@ -34,23 +36,43 @@ const TooltipIcon = ({ text }: { text: string }) => {
     };
   }, []);
 
+  const updatePosition = () => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      // 패드 등에서 오른쪽 화면을 넘어가는 경우 처리
+      const isTooRight = rect.right + 280 > window.innerWidth;
+      setCoords({ 
+        top: rect.top + rect.height / 2, 
+        left: isTooRight ? rect.left - 290 : rect.right + 12 
+      });
+    }
+  };
+
   return (
     <div 
       ref={containerRef}
-      className="relative inline-block ml-1" 
+      className="relative inline-flex items-center ml-1" 
       onClick={e => {
         e.stopPropagation();
+        if (!isOpen) updatePosition();
         setIsOpen(!isOpen);
       }}
-      onMouseEnter={() => setIsOpen(true)}
+      onMouseEnter={() => {
+        updatePosition();
+        setIsOpen(true);
+      }}
       onMouseLeave={() => setIsOpen(false)}
     >
-      <HelpCircle className={`w-3.5 h-3.5 transition-colors cursor-help ${isOpen ? 'text-red-500' : 'text-slate-400 hover:text-red-500'}`} />
-      <div className={`fixed bottom-[140px] left-4 w-[240px] p-3 bg-slate-800 text-white text-[11px] font-bold leading-relaxed rounded-xl transition-all duration-200 shadow-2xl text-left whitespace-pre-wrap z-[100] ${
-        isOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none'
-      }`}>
-        {text}
-      </div>
+      <HelpCircle className={`w-5 h-5 transition-colors cursor-help ${isOpen ? 'text-indigo-600' : 'text-indigo-400 hover:text-indigo-600'}`} />
+      {isOpen && createPortal(
+        <div 
+          className="fixed w-[280px] p-4 bg-slate-800 text-white text-xs font-bold leading-relaxed rounded-xl shadow-2xl text-left whitespace-pre-wrap z-[99999]"
+          style={{ top: coords.top, left: coords.left, transform: 'translateY(-50%)' }}
+        >
+          {text}
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
@@ -501,12 +523,12 @@ const MainApp: React.FC = () => {
           <div className="w-24 h-24 bg-indigo-500 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/50">
             <span className="text-4xl font-black text-white">C</span>
           </div>
-          <h1 className="text-4xl font-bold mb-4 text-white">CEUM Cloud <span className="text-indigo-400">1.5</span></h1>
+          <h1 className="text-4xl font-bold mb-4 text-white">CEUM BIBLE-CCM Cloud <span className="text-indigo-400">1.5</span></h1>
           <p className="mb-6 text-slate-300 max-w-lg leading-relaxed text-sm text-left bg-slate-800/50 p-6 rounded-xl border border-slate-700">
             <span className="block mb-2 font-bold text-indigo-300">📌 클라우드 동기화 안내</span>
             • <strong>성경번역본</strong>을 추가하면 구글 드라이브에 자동 저장되고 다른 기기에 연동됩니다.<br />
-            • <strong>[앨범 업로드]</strong> 기능을 사용하면 앨범이 구글드라이브에 업로드 되고 앨범 목록이 자동으로 생성됩니다.<br />
-            • <strong>[찬송가 앨범 업로드]</strong> 기능으로 최초 1회 업로드 바랍니다. 찬송가는 기본앨범으로 등록되어 있으나 용량관계로 악보는 사용자가 직접 업로드 하셔야 합니다.
+            • <strong>[폴더 업로드]</strong> 폴더를 업로드 하면 구글 드라이브에 저용량으로 저장되고, 앱은 구글 드라이브에서 악보를 자동 불러옵니다.<br />
+            • <strong>[찬송가 앨범 업로드]</strong> 용량관계로 찬송가의 목록만 빌드되어 있으니, 사용자가 악보를 업로드 해주셔야 합니다.
           </p>
           <button 
             className={`px-8 py-4 bg-white text-slate-900 rounded-xl font-bold text-lg hover:bg-slate-100 transition shadow-xl ${!isApiLoaded ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1'}`}
@@ -544,8 +566,22 @@ const MainApp: React.FC = () => {
             {isSyncing ? '클라우드 연동 중...' : (isApiLoaded ? '구글 계정으로 시작하기' : 'API 로딩 중...')}
           </button>
           
-          <div className="mt-12 text-sm text-slate-500">
+          <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+            <p className="text-lg font-black text-red-400 leading-relaxed drop-shadow-md">
+              계정 로그인 후, 구글 클라우드 사용자의 자료가 동기화 됩니다.<br/>
+              앱이 열리면, 약 5~10초 기다려 주세요.
+            </p>
+          </div>
+          
+          <div className="mt-8 text-sm text-slate-500">
             진행 시 구글 드라이브 접근 권한을 요청합니다.
+          </div>
+          
+          <div className="mt-4 p-3 bg-slate-800/50 border border-slate-700 rounded-xl text-left max-w-lg w-full">
+            <p className="text-xs text-slate-400 font-bold leading-relaxed">
+              * 앱이 흰 화면이거나 업데이트가 안되었으면 아래 설정 후 새로고침<br/>
+              <span className="text-indigo-300">설정 - Safari - 방문기록 및 웹사이트 데이터 지우기</span>
+            </p>
           </div>
         </div>
       </div>
@@ -692,12 +728,15 @@ const MainApp: React.FC = () => {
         {/* Header */}
         <header className="min-h-16 border-b border-slate-200 flex flex-wrap items-center px-4 md:px-6 py-2 gap-x-6 gap-y-3 bg-white sticky top-0 z-30 shadow-sm">
           <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-500 shrink-0"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
+            <div className="flex items-center">
+              <button 
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-500 shrink-0"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <TooltipIcon text="누르면 앨범관리 사이드바가 열립니다." />
+            </div>
 
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
               <button

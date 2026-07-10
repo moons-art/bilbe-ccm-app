@@ -248,6 +248,43 @@ export class GDriveService {
     }
   }
 
+  async deleteFileByName(filename: string, albumId: string, albums: any[]) {
+    try {
+      const drive = google.drive({ version: 'v3', auth: this.oauth2Client });
+      
+      let rootFolderId = await this.findFolder(drive, 'CEUM_Hymnal_Data');
+      if (!rootFolderId) return;
+      
+      const targetAlbum = albums.find(a => a.id === albumId);
+      if (!targetAlbum) return;
+      
+      const resAlbum = await drive.files.list({
+        q: `name='${targetAlbum.name}' and '${rootFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'files(id)',
+      });
+      const albumFolderId = resAlbum.data.files?.[0]?.id;
+      if (!albumFolderId) return;
+
+      const res = await drive.files.list({
+        q: `name='${filename}' and '${albumFolderId}' in parents and trashed=false`,
+        fields: 'files(id)'
+      });
+
+      const existingFiles = res.data.files || [];
+      for (const file of existingFiles) {
+        if (file.id) {
+          await drive.files.update({
+            fileId: file.id,
+            requestBody: { trashed: true }
+          });
+          console.log(`[GDrive] Deleted file ${filename} (ID: ${file.id}) from album ${targetAlbum.name}`);
+        }
+      }
+    } catch (err) {
+      console.error('[GDrive] deleteFileByName failed:', err);
+    }
+  }
+
   private async getOrCreateFolder(drive: any, name: string, parentId: string) {
     const res = await drive.files.list({
       q: `name='${name}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,

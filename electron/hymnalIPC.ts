@@ -520,6 +520,13 @@ export function createHymnalLogic(win?: BrowserWindow): HymnalLogic {
         if (song.filename) {
           try { await fs.unlink(path.join(imagesDir, song.filename)).catch(() => {}); } catch (err) {}
         }
+        if (song.filename && targetAlbum) {
+          try {
+            await gdrive.deleteFileByName(song.filename, targetAlbum.id, settings.albums);
+          } catch (err: any) {
+            console.error(`[Hymnal] Failed to delete file from GDrive: ${err.message}`);
+          }
+        }
         musicData.splice(idx, 1);
         await fs.writeFile(dbPath, JSON.stringify(musicData, null, 2), 'utf-8');
         return { success: true };

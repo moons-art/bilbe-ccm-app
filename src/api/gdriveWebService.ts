@@ -48,10 +48,18 @@ const handleAuthExpired = () => {
   // 대신 사용자가 수동 로그인 버튼을 누르게 유도하여 웹 표준 보안을 확보합니다.
 };
 
-// 401/403 에러 인터셉트 기능이 내장된 콤팩트 fetch
-const gdriveFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
-  const response = await fetch(url, options);
-  if (response.status === 401 || response.status === 403) {
+// 401 에러 인터셉트 기능이 내장된 콤팩트 fetch (403은 Rate Limit일 수 있으므로 로그아웃 시키지 않음)
+const gdriveFetch = async (url: string, options: RequestInit = {}, retries = 2): Promise<Response> => {
+  let response = await fetch(url, options);
+  
+  // 403 Rate Limit 발생 시 지수 백오프 재시도 (최대 2회)
+  if (response.status === 403 && retries > 0) {
+    console.warn(`[gdriveWebService] 403 Rate Limit hit for ${url}. Retrying...`);
+    await new Promise(resolve => setTimeout(resolve, (3 - retries) * 1000));
+    return gdriveFetch(url, options, retries - 1);
+  }
+
+  if (response.status === 401) {
     handleAuthExpired();
     throw new Error('Unauthorized or expired token');
   }
@@ -105,23 +113,27 @@ export const initGoogleApi = (onInit: () => void) => {
   // 1. Google API (gapi) 로드
   const gapiScript = document.createElement('script');
   gapiScript.src = 'https://apis.google.com/js/api.js';
+  gapiScript.async = true;
+  gapiScript.defer = true;
   gapiScript.onerror = () => handleError('Google API 스크립트 로드 실패 (네트워크 또는 보안 설정 차단)');
   gapiScript.onload = () => {
     try {
-      window.gapi.load('client', async () => {
-        try {
-          await window.gapi.client.init({
-            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-          });
-          // drive v3 클라이언트를 명시적 강제 로드하여 undefined 에러 원천 차단
-          await window.gapi.client.load('drive', 'v3');
-          isGapiLoaded = true;
-          if (isGsiLoaded && !hasError) {
-            restoreOrRefreshSession(); // ✅ 토큰을 gapi.client에 먼저 주입
-            onInit();                  // ✅ 그 다음 Provider 초기화
-          }
-        } catch (initErr) {
-          handleError(initErr);
+      window.gapi.load('client', () => {
+        // 백그라운드에서 초기화 진행 (UI 블로킹 방지)
+        window.gapi.client.init({
+          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+        }).then(() => {
+          // drive v3 클라이언트를 명시적 강제 로드
+          return window.gapi.client.load('drive', 'v3');
+        }).catch(err => {
+          console.warn('[gdriveWebService] Background gapi init warning:', err);
+        });
+
+        // 즉시 로드 완료 처리하여 로그인 버튼을 빨리 활성화함
+        isGapiLoaded = true;
+        if (isGsiLoaded && !hasError) {
+          restoreOrRefreshSession(); // ✅ 토큰을 gapi.client에 먼저 주입
+          onInit();                  // ✅ 그 다음 Provider 초기화
         }
       });
     } catch (loadErr) {
@@ -133,6 +145,8 @@ export const initGoogleApi = (onInit: () => void) => {
   // 2. Google Identity Services (GSI) 로드
   const gsiScript = document.createElement('script');
   gsiScript.src = 'https://accounts.google.com/gsi/client';
+  gsiScript.async = true;
+  gsiScript.defer = true;
   gsiScript.onerror = () => handleError('Google GSI 스크립트 로드 실패 (네트워크 또는 보안 설정 차단)');
   gsiScript.onload = () => {
     try {
@@ -442,9 +456,11 @@ export const gdriveWebService = {
     
     // 1. 로컬 캐시 조회
     const cachedBlob = await imageCache.getImage(fileId);
-    if (cachedBlob) {
-      console.log(`[Cache Hit] Loaded score from local database: ${fileId}`);
+    if (cachedBlob && cachedBlob.size > 0) {
+      console.log(`[Cache Hit] Loaded score from local database: ${fileId} (${cachedBlob.size} bytes)`);
       return cachedBlob;
+    } else if (cachedBlob && cachedBlob.size === 0) {
+      console.warn(`[Cache Corrupted] Cached blob is empty (0 bytes). Invalidating cache for: ${fileId}`);
     }
     
     // 2. 캐시 미스 시 구글 드라이브 다운로드
@@ -455,22 +471,32 @@ export const gdriveWebService = {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
       if (!response.ok) return null;
-      const blob = await response.blob();
       
-      // 3. 로컬 캐시 저장
-      await imageCache.saveImage(fileId, blob);
-      return blob;
+      // 스트림 소모(Consumption) 버그를 완벽히 막기 위해 일단 ArrayBuffer로 완전히 메모리에 적재합니다.
+      const buffer = await response.arrayBuffer();
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
+      const safeBlob = new Blob([buffer], { type: contentType });
+      
+      // 3. 로컬 캐시 저장 (백그라운드에서 비동기로 실행하여 로딩 속도 단축)
+      imageCache.saveImage(fileId, safeBlob).catch(e => console.error(e));
+      
+      return safeBlob;
     } catch (e) {
       console.error('Failed to get file blob from drive', e);
       return null;
     }
   },
 
-  // 이미지 파일 (미디어) Blob URL 반환
+  // 이미지 파일 (미디어) Blob URL 반환 (사파리 흰화면 버그를 완전히 방지하기 위해 Data URL로 변환)
   downloadImageBlob: async (fileId: string): Promise<string | null> => {
     const blob = await gdriveWebService.getFileBlob(fileId);
     if (blob) {
-      return URL.createObjectURL(blob);
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
     }
     return null;
   },

@@ -2,7 +2,7 @@
 
 const DB_NAME = 'bible-ccm-cache';
 const DB_VERSION = 1;
-const STORE_NAME = 'music-sheets';
+const STORE_NAME = 'music-sheets-v2';
 
 const getDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -31,7 +31,19 @@ export const imageCache = {
         const request = store.get(fileId);
 
         request.onerror = () => reject(request.error);
-        request.onsuccess = () => resolve(request.result || null);
+        request.onsuccess = () => {
+          if (request.result) {
+            if (request.result.buffer && request.result.type) {
+              resolve(new Blob([request.result.buffer], { type: request.result.type }));
+            } else if (request.result instanceof Blob) {
+              resolve(request.result);
+            } else {
+              resolve(null);
+            }
+          } else {
+            resolve(null);
+          }
+        };
       });
     } catch (e) {
       console.error('[imageCache] Failed to get image from IndexedDB:', e);
@@ -42,11 +54,14 @@ export const imageCache = {
   // 다운로드한 이미지 저장
   saveImage: async (fileId: string, blob: Blob): Promise<void> => {
     try {
+      const buffer = await blob.arrayBuffer();
+      const type = blob.type;
+      
       const db = await getDB();
       return new Promise<void>((resolve, reject) => {
         const transaction = db.transaction(STORE_NAME, 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
-        const request = store.put(blob, fileId);
+        const request = store.put({ buffer, type }, fileId);
 
         request.onerror = () => reject(request.error);
         request.onsuccess = () => resolve();

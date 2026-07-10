@@ -166,19 +166,48 @@ export const LeaderViewer: React.FC<LeaderViewerProps> = ({ onClose, onOpenLibra
   const currentImageRatio = imageRatios[currentItem.id] || 1; // 가로/세로 비율 (디폴트 1)
   const finalAspectRatio = currentImageRatio * (visibleWidthFactor / visibleHeightFactor);
 
+  // 리스트 내의 모든 이미지를 뷰어가 열릴 때 백그라운드에서 미리 캐싱/다운로드
   useEffect(() => {
-    if (!currentSong) return;
-    const fileId = currentSong.fileId || currentSong.filePath || currentSong.filename;
-    if (fileId && fileId.length > 20 && !fileId.startsWith('/') && !blobUrls[currentSong.id]) {
-      import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
-        gdriveWebService.getFileBlob(fileId).then(blob => {
-          if (blob) {
-            setBlobUrls(prev => ({ ...prev, [currentSong.id]: URL.createObjectURL(blob) }));
-          }
+    let isMounted = true;
+
+    const loadImages = async () => {
+      const { gdriveWebService } = await import('../../api/gdriveWebService');
+      
+      for (const item of visibleItems) {
+        if (!isMounted) break;
+        
+        const song = songs.find(s => {
+          if (!s || !s.id || !item.songId) return false;
+          const sId = s.id.toString();
+          const tId = item.songId.toString();
+          return sId === tId || (s.fileId && s.fileId.toString() === tId) || tId.endsWith('-' + sId) || sId.endsWith('-' + tId);
         });
-      });
-    }
-  }, [currentSong, blobUrls]);
+        
+        if (!song) continue;
+        
+        const fileId = song.fileId || song.filePath || song.filename;
+        if (fileId && fileId.length > 20 && !fileId.startsWith('/')) {
+          setBlobUrls(prev => {
+            if (prev[song.id]) return prev;
+            
+            gdriveWebService.downloadImageBlob(fileId).then(url => {
+              if (isMounted && url) {
+                setBlobUrls(current => ({ ...current, [song.id]: url }));
+              }
+            });
+            
+            return prev;
+          });
+        }
+      }
+    };
+
+    loadImages();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [visibleItems, songs]);
 
   return (
     <>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useHymnal } from '../../stores/HymnalProvider';
 import { 
   Music, 
@@ -14,6 +15,7 @@ import { hymnalApi } from '../../api/hymnalApi';
 const TooltipIcon = ({ text }: { text: string }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
@@ -29,23 +31,42 @@ const TooltipIcon = ({ text }: { text: string }) => {
     };
   }, []);
 
+  const updatePosition = () => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const isTooRight = rect.right + 280 > window.innerWidth;
+      setCoords({ 
+        top: rect.top + rect.height / 2, 
+        left: isTooRight ? rect.left - 290 : rect.right + 12 
+      });
+    }
+  };
+
   return (
     <div 
       ref={containerRef}
-      className="relative inline-block ml-1" 
+      className="relative inline-flex items-center ml-1" 
       onClick={e => {
         e.stopPropagation();
+        if (!isOpen) updatePosition();
         setIsOpen(!isOpen);
       }}
-      onMouseEnter={() => setIsOpen(true)}
+      onMouseEnter={() => {
+        updatePosition();
+        setIsOpen(true);
+      }}
       onMouseLeave={() => setIsOpen(false)}
     >
-      <HelpCircle className={`w-3.5 h-3.5 transition-colors cursor-help ${isOpen ? 'text-indigo-500' : 'text-slate-400 hover:text-indigo-500'}`} />
-      <div className={`fixed bottom-[140px] left-4 w-[240px] p-3 bg-slate-800 text-white text-[12px] font-bold leading-relaxed rounded-xl transition-all duration-200 shadow-2xl text-left whitespace-pre-wrap z-[100] ${
-        isOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-2 pointer-events-none'
-      }`}>
-        {text}
-      </div>
+      <HelpCircle className={`w-5 h-5 transition-colors cursor-help ${isOpen ? 'text-indigo-600' : 'text-indigo-400 hover:text-indigo-600'}`} />
+      {isOpen && createPortal(
+        <div 
+          className="fixed w-[280px] p-4 bg-slate-800 text-white text-xs font-bold leading-relaxed rounded-xl shadow-2xl text-left whitespace-pre-wrap z-[99999]"
+          style={{ top: coords.top, left: coords.left, transform: 'translateY(-50%)' }}
+        >
+          {text}
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
@@ -233,8 +254,8 @@ export const HymnalSidebar: React.FC = () => {
           >
             <FolderUp className="w-5 h-5 group-hover:-translate-y-1 transition-transform" />
             <div className="flex items-center">
-              <span className="text-xs font-bold">{isSyncing ? '업로드 준비 중...' : '앨범 업로드'}</span>
-              <TooltipIcon text="[앨범 업로드] 기능을 사용하면 앨범이 구글드라이브에 통째로 업로드 되고 앨범 목록이 자동으로 생성됩니다." />
+              <span className="text-xs font-bold">{isSyncing ? '업로드 준비 중...' : '폴더 업로드'}</span>
+              <TooltipIcon text="폴더를 업로드 하면 구글 드라이브에 저용량으로 저장되고, 앱은 구글 드라이브에서 악보를 자동 불러옵니다. + 폴더명으로 새앨범이 추가 됩니다" />
             </div>
           </button>
           
@@ -246,7 +267,7 @@ export const HymnalSidebar: React.FC = () => {
             <UploadCloud className="w-4 h-4 text-slate-500" />
             <div className="flex items-center text-center">
               <span className="text-[11px] font-bold leading-tight">찬송가 앨범 업로드<br/>(최초 1회만)</span>
-              <TooltipIcon text="[찬송가 앨범 업로드] 기능으로 최초 1회 업로드 바랍니다. 찬송가는 기본 앨범으로 등록되어 있으나, 용량 관계상 악보 이미지는 사용자가 직접 업로드 하셔야 합니다." />
+              <TooltipIcon text="용량관계로 찬송가의 목록만 빌드되어 있으니, 사용자가 악보를 업로드 해주셔야 합니다" />
             </div>
           </button>
         </div>

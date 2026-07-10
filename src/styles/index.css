@@ -9,6 +9,9 @@
 }
 
 @layer base {
+  html, body {
+    overscroll-behavior-y: none;
+  }
   body {
     @apply bg-background text-[#1a1a1a] antialiased selection:bg-red-200 selection:text-red-900;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;

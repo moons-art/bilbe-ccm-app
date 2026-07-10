@@ -1,11 +1,12 @@
 import React, { useRef, useState, useEffect, useMemo, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { useHymnal } from '../../stores/HymnalProvider';
 import type { ContiItem } from '../../stores/HymnalProvider';
 import { hymnalApi } from '../../api/hymnalApi';
 import { 
   Plus, Minus, Trash2, Maximize2, Type, Move, ZoomIn, Scissors, Save, X, RotateCcw, Image as ImageIcon, 
   StickyNote, LayoutTemplate, Printer, Share2, Search, Library, FileUp,
-  ChevronLeft, ChevronRight, GripVertical, Download, ImagePlus, Calendar, Hash, Layout, CheckCircle2, Check, DoorOpen
+  ChevronLeft, ChevronRight, GripVertical, Download, ImagePlus, Calendar, Hash, Layout, CheckCircle2, Check, DoorOpen, HelpCircle
 } from 'lucide-react';
 import { compressImageToWebP, uploadImageToGDrive } from '../../utils/imageProcessor';
 import { gdriveWebService } from '../../api/gdriveWebService';
@@ -14,6 +15,66 @@ import { SavedContisModal } from './SavedContisModal';
 import { LeaderViewer } from './LeaderViewer';
 
 const MARGIN_PX = 55; // 안전 여백
+
+// --- Tooltip Guide Helper Component ---
+const TooltipIcon = ({ text }: { text: string }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, []);
+
+  const updatePosition = () => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const isTooRight = rect.right + 280 > window.innerWidth;
+      setCoords({ 
+        top: rect.top + rect.height / 2, 
+        left: isTooRight ? rect.left - 290 : rect.right + 12 
+      });
+    }
+  };
+
+  return (
+    <div 
+      ref={containerRef}
+      className="relative inline-flex items-center ml-1" 
+      onClick={e => {
+        e.stopPropagation();
+        if (!isOpen) updatePosition();
+        setIsOpen(!isOpen);
+      }}
+      onMouseEnter={() => {
+        updatePosition();
+        setIsOpen(true);
+      }}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      <HelpCircle className={`w-5 h-5 transition-colors cursor-help ${isOpen ? 'text-indigo-600' : 'text-indigo-400 hover:text-indigo-600'}`} />
+      {isOpen && createPortal(
+        <div 
+          className="fixed w-[280px] p-4 bg-slate-800 text-white text-xs font-bold leading-relaxed rounded-xl shadow-2xl text-left whitespace-pre-wrap z-[99999]"
+          style={{ top: coords.top, left: coords.left, transform: 'translateY(-50%)' }}
+        >
+          {text}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
 
 // --- Optimized Local Slider Component ---
 const SmoothSlider = memo(({ 
@@ -87,20 +148,29 @@ const DraggableContiItem = React.memo(({
 
   // 구글 드라이브 이미지의 경우 안전하게 Blob으로 직접 다운로드하여 렌더링
   useEffect(() => {
+    let isMounted = true;
+    let currentUrl: string | null = null;
     const fileId = song?.fileId || song?.filePath || song?.filename;
+    
     // 구글 드라이브 ID는 보통 20자 이상. 로컬 경로나 번호가 아닐 때만 시도
     if (fileId && fileId.length > 20 && !fileId.startsWith('/')) {
       import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
         gdriveWebService.downloadImageBlob(fileId).then(url => {
-          if (url) setBlobUrl(url);
+          if (isMounted && url) {
+            currentUrl = url;
+            setBlobUrl(url);
+          } else if (url) {
+            URL.revokeObjectURL(url);
+          }
         });
       });
     }
     return () => {
+      isMounted = false;
       // 언마운트 시 메모리 해제
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      if (currentUrl) URL.revokeObjectURL(currentUrl);
     };
-  }, [song?.filePath, song?.filename]);
+  }, [song?.fileId, song?.filePath, song?.filename]);
 
   const crop = item.crop || { top: 0, bottom: 0, left: 0, right: 0 };
   const visibleWidthFactor = (100 - crop.left - crop.right) / 100;
@@ -235,15 +305,23 @@ const CropEditor: React.FC<{
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
     const fileId = song?.fileId || song?.filePath || song?.filename;
+    
     if (fileId && fileId.length > 20 && !fileId.startsWith('/')) {
       import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
-        gdriveWebService.getFileBlob(fileId).then(blob => {
-          if (blob) setBlobUrl(URL.createObjectURL(blob));
+        gdriveWebService.downloadImageBlob(fileId).then(url => {
+          if (isMounted && url) {
+            setBlobUrl(url);
+          }
         });
       });
     }
-  }, [song]);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [song?.fileId, song?.filePath, song?.filename]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -289,8 +367,9 @@ const CropEditor: React.FC<{
                </div>
 
                {/* Resizable Crop Box */}
-               <div className="absolute border-2 border-indigo-400 shadow-2xl cursor-move" style={{ top: `${crop.top}%`, left: `${crop.left}%`, right: `${crop.right}%`, bottom: `${crop.bottom}%` }}
+               <div className="absolute border-2 border-indigo-400 shadow-2xl cursor-move touch-none" style={{ top: `${crop.top}%`, left: `${crop.left}%`, right: `${crop.right}%`, bottom: `${crop.bottom}%` }}
                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture(e.pointerId);
                     const rect = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
                     const startX = e.clientX; const startY = e.clientY; const startCrop = { ...crop };
                     const move = (me: PointerEvent) => {
@@ -313,9 +392,10 @@ const CropEditor: React.FC<{
                     { style: 'top-[-6px] left-1/2 -translate-x-1/2 cursor-n-resize h-3 w-10 bg-indigo-400', type: 'n' },
                     { style: 'bottom-[-6px] left-1/2 -translate-x-1/2 cursor-s-resize h-3 w-10 bg-indigo-400', type: 's' },
                   ].map(h => (
-                    <div key={h.type} className={`absolute z-[10] border-2 border-white bg-indigo-500 rounded-full shadow-lg ${h.style} ${!h.style.includes('h-') ? 'w-5 h-5' : ''}`}
+                    <div key={h.type} className={`absolute z-[10] border-2 border-white bg-indigo-500 rounded-full shadow-lg ${h.style} ${!h.style.includes('h-') ? 'w-6 h-6' : 'h-4 w-12'} touch-none`}
                       onPointerDown={(e) => {
                         e.stopPropagation();
+                        e.currentTarget.setPointerCapture(e.pointerId);
                         const rect = (e.currentTarget as HTMLElement).parentElement!.parentElement!.getBoundingClientRect();
                         const sX = e.clientX; const sY = e.clientY; const sC = { ...crop };
                         const move = (me: PointerEvent) => {
@@ -431,8 +511,6 @@ export const ContiEditor: React.FC = () => {
     savedContis, saveCurrentConti, loadSavedConti, deleteSavedConti,
     setSongs, setContiItems
   } = useHymnal();
-  
-  const [isUploading, setIsUploading] = useState(false);
 
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [cropEditingId, setCropEditingId] = useState<string | null>(null);
@@ -445,7 +523,6 @@ export const ContiEditor: React.FC = () => {
   const isLandscape = orientation === 'landscape';
   const canvasWidth = isLandscape ? (paperSize === 'A4' ? 1123 : 1587) : (paperSize === 'A4' ? 794 : 1123);
   const canvasHeight = isLandscape ? (paperSize === 'A4' ? 794 : 1123) : (paperSize === 'A4' ? 1123 : 1587);
-
   const editingItem = contiItems.find(i => i.id === cropEditingId);
   const editingSong = editingItem ? songs.find(s => {
     if (!s || !s.id || !editingItem.songId) return false;
@@ -453,72 +530,6 @@ export const ContiEditor: React.FC = () => {
     const tId = editingItem.songId.toString();
     return sId === tId || (s.fileId && s.fileId.toString() === tId) || tId.endsWith('-' + sId) || sId.endsWith('-' + tId);
   }) : null;
-
-  const handleAddExternalFile = async () => {
-    try {
-      // 1. User Activation 유실 방지를 위해 파일 선택 창을 가장 먼저 띄움
-      const file = await hymnalApi.selectFileForConti() as File;
-      if (!file) return;
-
-      // 2. 그 후 구글 인증 체크
-      const token = hymnalApi.getAccessToken();
-      if (!token) {
-        const loggedIn = await hymnalApi.login();
-        if (!loggedIn) {
-          alert('구글 로그인(드라이브 접근 권한)이 필요합니다.');
-          return;
-        }
-      }
-
-      setIsUploading(true);
-      
-      // 1. 이미지 WEBP 고화질 압축
-      const compressedBlob = await compressImageToWebP(file);
-      
-      // 2. 구글 드라이브 즉시 업로드
-      // (TODO: 실제 구글 드라이브 연동 후 폴더 ID 맵핑 필요)
-      const fileId = await uploadImageToGDrive(compressedBlob, file.name || 'External Image');
-      
-      // 3. 새로운 임시 곡 데이터 생성
-      const newSongId = `external-${Date.now()}`;
-      const newSong = {
-        id: newSongId,
-        number: 0,
-        title: '외부 파일: ' + (file.name || '새 악보'),
-        filename: fileId, // 드라이브 File ID
-        filePath: fileId,
-        isManual: true,
-      };
-
-      // 4. 전역 곡 리스트에 추가 후 콘티에 삽입
-      if (setSongs) {
-        setSongs(prev => [...prev, newSong]);
-      }
-      
-      // 5. 새 콘티 아이템 직접 추가 및 즉시 캔버스 표시
-      const newItemId = `conti-${Date.now()}`;
-      setContiItems(prev => [...prev, {
-        id: newItemId,
-        songId: newSongId,
-        x: 40,
-        y: 40,
-        width: 30, // 기본 넓이 30%
-        height: 0,
-        memo: '',
-        memoFontSize: 12,
-        isMemoOpen: false,
-        page: 1,
-        order: prev.length + 1,
-        isVisible: true // 즉시 캔버스에 표시
-      }]);
-
-      alert('파일이 콘티에 추가 되었습니다.');
-    } catch (e: any) {
-      alert('업로드 실패: ' + e.message);
-    } finally {
-      setIsUploading(false);
-    }
-  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`fixed inset-0 z-[9999] flex flex-col overflow-hidden select-none transition-colors duration-500 ${isPreviewMode ? 'bg-slate-50' : 'bg-slate-950'}`}>
@@ -564,7 +575,7 @@ export const ContiEditor: React.FC = () => {
 
         <div className={`bg-white border-b border-slate-200 z-50 no-print transition-all duration-300 shadow-sm ${isPreviewMode ? '-translate-y-full absolute w-full' : 'relative'}`}>
           {/* 1층: h-16 고정을 풀고 반응형 flex-wrap 및 패딩 조절 */}
-          <div className="min-h-16 py-3 px-4 sm:px-6 flex flex-wrap items-center justify-between gap-4 border-b border-slate-100/50">
+          <div className="py-1.5 px-3 sm:px-4 flex flex-wrap items-center justify-between gap-4 border-b border-slate-100/50">
             <div className="flex items-center gap-3 sm:gap-5">
               <button onClick={() => setIsEditorOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
               <div className="flex items-center gap-2 sm:gap-3">
@@ -596,13 +607,12 @@ export const ContiEditor: React.FC = () => {
 
               <div className="w-px h-6 bg-slate-200 mx-1 hidden sm:block" />
 
-              <button disabled={isUploading} onClick={handleAddExternalFile} className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-xs font-black text-slate-600 flex items-center gap-1.5 sm:gap-2 transition-all border border-slate-200 shadow-sm active:scale-95 ${isUploading ? 'bg-slate-100 opacity-50 cursor-not-allowed' : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'}`}>
-                <ImagePlus className="w-3.5 h-3.5" /> {isUploading ? '업로드 중...' : '사진 직접 추가'}
-              </button>
-
-              <button onClick={() => setIsLibraryOpen(true)} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white hover:bg-slate-50 rounded-lg text-[10px] sm:text-xs font-black text-slate-600 flex items-center gap-1.5 sm:gap-2 transition-all border border-slate-200 shadow-sm active:scale-95">
-                <Library className="w-3.5 h-3.5 text-slate-400" /> 저장소
-              </button>
+              <div className="flex items-center">
+                <button onClick={() => setIsLibraryOpen(true)} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white hover:bg-slate-50 rounded-lg text-[10px] sm:text-xs font-black text-slate-600 flex items-center gap-1.5 sm:gap-2 transition-all border border-slate-200 shadow-sm active:scale-95">
+                  <Library className="w-3.5 h-3.5 text-slate-400" /> 저장소
+                </button>
+                <TooltipIcon text="저장된 콘티를 불러옵니다" />
+              </div>
 
               <button onClick={() => saveCurrentConti()} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-[10px] sm:text-xs font-black text-white flex items-center gap-1.5 sm:gap-2 transition-all shadow-lg shadow-indigo-100 active:scale-95">
                 <Save className="w-3.5 h-3.5" /> 저장하기
@@ -611,11 +621,14 @@ export const ContiEditor: React.FC = () => {
           </div>
 
           {/* 2층: h-14 고정을 풀고 flex-wrap 및 패딩 조절 */}
-          <div className="min-h-14 py-2.5 px-4 sm:px-6 flex flex-wrap items-center justify-between gap-3 bg-slate-50/30">
+          <div className="py-1 px-3 sm:px-4 flex flex-wrap items-center justify-between gap-3 bg-slate-50/30">
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <button onClick={() => setShowContiNumbers(!showContiNumbers)} className={`px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-[11px] font-black flex items-center gap-1.5 transition-all border ${showContiNumbers ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>
-                <Hash className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 순번 {showContiNumbers ? 'ON' : 'OFF'}
-              </button>
+              <div className="flex items-center">
+                <button onClick={() => setShowContiNumbers(!showContiNumbers)} className={`px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-[11px] font-black flex items-center gap-1.5 transition-all border ${showContiNumbers ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200'}`}>
+                  <Hash className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 순번 {showContiNumbers ? 'ON' : 'OFF'}
+                </button>
+                <TooltipIcon text="악보 번호보기를 끄고 켭니다" />
+              </div>
               <div className="w-px h-4 bg-slate-200 mx-0.5 hidden sm:block" />
               <div className="flex bg-white p-0.5 sm:p-1 rounded-lg border border-slate-200 shrink-0">
                 <button onClick={() => setOrientation('portrait')} className={`px-2 py-1 sm:px-3 sm:py-1.5 rounded-md text-[9px] sm:text-[10px] font-black transition-all ${!isLandscape ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>세로</button>
@@ -628,7 +641,10 @@ export const ContiEditor: React.FC = () => {
             </div>
             
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <button onClick={() => setIsLeaderViewerOpen(true)} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-amber-500 hover:bg-amber-600 rounded-lg text-[10px] sm:text-[11px] font-black text-white shadow-lg flex items-center gap-1.5 transition-all active:scale-95"><Layout className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 뷰어</button>
+              <div className="flex items-center">
+                <button onClick={() => setIsLeaderViewerOpen(true)} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-amber-500 hover:bg-amber-600 rounded-lg text-[10px] sm:text-[11px] font-black text-white shadow-lg flex items-center gap-1.5 transition-all active:scale-95"><Layout className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 뷰어</button>
+                <TooltipIcon text="인도자용 악보 뷰어와 회중용 PDF 링크를 생성합니다." />
+              </div>
               <button onClick={() => setIsPreviewMode(true)} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-slate-900 rounded-lg text-[10px] sm:text-[11px] font-black text-white shadow-lg flex items-center gap-1.5 transition-all active:scale-95"><Search className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 미리보기</button>
               <button onClick={clearConti} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white text-slate-400 hover:text-red-500 rounded-lg border border-slate-200 transition-all flex items-center gap-1.5 text-[10px] sm:text-[11px] font-black"><RotateCcw className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 비우기</button>
               <div className="w-px h-6 bg-slate-200 mx-0.5 hidden sm:block" />
@@ -638,7 +654,11 @@ export const ContiEditor: React.FC = () => {
           </div>
         </div>
 
-        <Reorder.Group axis="x" values={contiItems} onReorder={reorderContiItems} className={`bg-white border-b border-slate-100 px-6 py-4 flex items-center gap-4 overflow-x-auto custom-scrollbar no-print transition-all duration-300 ${isPreviewMode ? 'opacity-0 h-0 p-0 pointer-events-none' : 'opacity-100 h-auto'}`}>
+        <div className={`bg-white border-b border-slate-100 flex items-center gap-2 overflow-x-auto custom-scrollbar no-print transition-all duration-300 ${isPreviewMode ? 'opacity-0 h-0 p-0 pointer-events-none' : 'opacity-100 h-auto'}`}>
+          <div className="flex items-center px-3 py-2 border-r border-slate-100 shrink-0">
+             <TooltipIcon text="악보제목을 눌러 사용하고, 좌우로 순서를 이동할수 있습니다" />
+          </div>
+          <Reorder.Group axis="x" values={contiItems} onReorder={reorderContiItems} className="px-2 pt-2 pb-5 flex items-center gap-2 flex-1">
            {contiItems.filter(item => !item.isVisible || item.page === 1).map((item, idx) => {
                 const song = songs.find(s => {
                   if (!s || !s.id || !item.songId) return false;
@@ -648,17 +668,18 @@ export const ContiEditor: React.FC = () => {
                 });
                 const isAssignedToThisPage = item.isVisible && item.page === 1;
                 return (
-                  <Reorder.Item key={item.id} value={item} layout transition={{ type: "spring", stiffness: 700, damping: 40, mass: 0.8 }} className={`flex items-center gap-1 pl-2 pr-5 py-2.5 rounded-2xl border-2 shrink-0 select-none ${isAssignedToThisPage ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : (item.isVisible ? 'opacity-30 border-slate-200 pointer-events-none' : 'bg-slate-50 border-slate-100 text-slate-500')}`}>
-                     <div className="p-1 cursor-grab active:cursor-grabbing text-slate-400/50 hover:text-white transition-colors group"><GripVertical className="w-5 h-5 group-active:scale-110" /></div>
-                     <button onClick={() => toggleContiItemVisibility(item.id)} className="flex items-center gap-3">
-                       <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${isAssignedToThisPage ? 'bg-white/20 text-white' : 'bg-white text-slate-300'}`}>{idx + 1}</span>
-                       <span className="text-sm font-bold truncate max-w-[150px]">{song?.title}</span>
-                       {isAssignedToThisPage && <CheckCircle2 className="w-4 h-4 fill-white text-indigo-600" />}
+                  <Reorder.Item key={item.id} value={item} layout transition={{ type: "spring", stiffness: 700, damping: 40, mass: 0.8 }} className={`flex items-center gap-1 pl-1.5 pr-2.5 py-1.5 rounded-xl border shrink-0 select-none ${isAssignedToThisPage ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : (item.isVisible ? 'opacity-30 border-slate-200 pointer-events-none' : 'bg-slate-50 border-slate-100 text-slate-500')}`}>
+                     <div className="p-0.5 cursor-grab active:cursor-grabbing text-slate-400/50 hover:text-white transition-colors group touch-none"><GripVertical className="w-4 h-4 group-active:scale-110" /></div>
+                     <button onClick={() => toggleContiItemVisibility(item.id)} className="flex items-center gap-1.5">
+                       <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black ${isAssignedToThisPage ? 'bg-white/20 text-white' : 'bg-white text-slate-300'}`}>{idx + 1}</span>
+                       <span className="text-[13px] font-bold truncate max-w-[110px]">{song?.title}</span>
+                       {isAssignedToThisPage && <CheckCircle2 className="w-3.5 h-3.5 fill-white text-indigo-600" />}
                      </button>
                   </Reorder.Item>
                 );
            })}
-        </Reorder.Group>
+          </Reorder.Group>
+        </div>
 
         <div className={`flex-1 overflow-auto p-24 flex flex-col items-center custom-scrollbar transition-all print:p-0 print:m-0 print:overflow-visible print:bg-white ${isPreviewMode ? 'bg-slate-50' : 'bg-slate-100'}`}>
             <div className="relative flex flex-col items-center gap-20 print:gap-0 print:static">
@@ -675,7 +696,7 @@ export const ContiEditor: React.FC = () => {
                </div>
             </div>
         </div>
-        <style>{`.custom-scrollbar::-webkit-scrollbar { height: 4px; width: 4px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; } @media print { * { box-shadow: none !important; -webkit-print-color-adjust: exact; } body { margin: 0; padding: 0 !important; background-color: white !important; } .no-print { display: none !important; } .page-break-after { page-break-after: always; display: block !important; margin: 0 auto !important; position: static !important; } @page { size: ${paperSize} ${orientation}; margin: 0; } .bg-slate-950, .bg-slate-100 { background: white !important; } }`}</style>
+        <style>{`.custom-scrollbar::-webkit-scrollbar { height: 24px; width: 24px; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 12px; border: 4px solid white; } @media print { * { box-shadow: none !important; -webkit-print-color-adjust: exact; } body { margin: 0; padding: 0 !important; background-color: white !important; } .no-print { display: none !important; } .page-break-after { page-break-after: always; display: block !important; margin: 0 auto !important; position: static !important; } @page { size: ${paperSize} ${orientation}; margin: 0; } .bg-slate-950, .bg-slate-100 { background: white !important; } }`}</style>
     </motion.div>
   );
 };

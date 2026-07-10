@@ -31,7 +31,12 @@ const DriveImage = ({ fileId, alt, className }: { fileId: string, alt?: string, 
 
   useEffect(() => {
     let active = true;
-    if (!fileId) return;
+    let currentBlobUrl: string | null = null;
+    
+    if (!fileId) {
+      setSrc(null);
+      return;
+    }
     
     // Check if it's already a full URL or local path
     if (fileId.startsWith('http') || fileId.startsWith('/')) {
@@ -39,13 +44,23 @@ const DriveImage = ({ fileId, alt, className }: { fileId: string, alt?: string, 
       return;
     }
 
+    setSrc(null); // 곡이 바뀌면 이전 이미지를 즉시 지워서 로딩 상태 표시
+
     import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
       gdriveWebService.downloadImageBlob(fileId).then(blobUrl => {
-        if (active && blobUrl) setSrc(blobUrl);
+        if (active && blobUrl) {
+          setSrc(blobUrl);
+          currentBlobUrl = blobUrl;
+        } else if (blobUrl) {
+          // 컴포넌트 언마운트 후 다운로드 완료된 경우 즉시 해제 (메모리 누수 방지)
+          URL.revokeObjectURL(blobUrl);
+        }
       });
     });
     
-    return () => { active = false; };
+    return () => { 
+      active = false; 
+    };
   }, [fileId]);
 
   if (!src) return <div className="w-full h-48 flex items-center justify-center bg-slate-100 text-slate-400">로딩 중...</div>;
@@ -125,6 +140,19 @@ export const HymnalModule: React.FC = () => {
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
   const [showYoutubePlayer, setShowYoutubePlayer] = useState(false);
   const [isListOpen, setIsListOpen] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(50);
+
+  // 검색어나 앨범이 변경되면 리스트 표시 개수 초기화
+  useEffect(() => {
+    setVisibleCount(50);
+  }, [searchQuery, activeAlbumId]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop <= e.currentTarget.clientHeight + 400;
+    if (bottom && visibleCount < filteredSongs.length) {
+      setVisibleCount(prev => prev + 50);
+    }
+  };
 
   // 유튜브 URL 추출 헬퍼
   const getYoutubeEmbedUrl = (url?: string) => {
@@ -190,6 +218,9 @@ export const HymnalModule: React.FC = () => {
   // --- 편집 모드 핸들러 ---
   const handleUpdateSong = async () => {
     if (!selectedSongId) return;
+    
+    if (!confirm('수정된 정보를 저장하시겠습니까?')) return;
+    
     const result = await hymnalApi.updateSong({
       id: selectedSongId,
       title: editedTitle,
@@ -227,16 +258,14 @@ export const HymnalModule: React.FC = () => {
   const handleDeleteSong = async () => {
     if (!selectedSongId) return;
     
-    const warningMsg = isDeleteOriginal 
-      ? '정말로 이 악보를 앱에서 제거하고, PC 원본 폴더에서도 영구히 삭제하시겠습니까?'
-      : '정말로 이 악보를 앱에서 제거하시겠습니까? (PC 원본 파일은 유지됩니다)';
+    const warningMsg = '정말로 이 악보를 삭제하시겠습니까? PC 원본 파일 및 구글 드라이브 파일도 함께 삭제됩니다.';
       
     if (!confirm(warningMsg)) return;
 
-    const result = await hymnalApi.deleteSong(selectedSongId, isDeleteOriginal);
+    const result = await hymnalApi.deleteSong(selectedSongId, true);
     
     if (result.success) {
-      alert(isDeleteOriginal ? '앱 데이터와 원본 파일이 삭제되었습니다.' : '앱 데이터가 삭제되었습니다.');
+      alert('악보가 삭제되었습니다. (로컬 데이터, 원본 파일 및 구글 드라이브 파일 삭제 완료)');
       setSelectedSongId(null);
       setIsEditing(false);
       await fetchSongs();
@@ -317,14 +346,17 @@ export const HymnalModule: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-6">
+              <div 
+                className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-6"
+                onScroll={handleScroll}
+              >
                 {filteredSongs.length > 0 ? (
                   <div className="space-y-1.5">
                     <div className="px-3 py-2 flex items-center justify-between">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">곡 리스트</p>
                       <span className="text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded-full text-slate-400 font-bold">{filteredSongs.length}</span>
                     </div>
-                    {filteredSongs.map((song) => (
+                    {filteredSongs.slice(0, visibleCount).map((song) => (
                       <button
                         key={song.id}
                         onClick={() => setSelectedSongId(song.id)}
@@ -466,23 +498,12 @@ export const HymnalModule: React.FC = () => {
                         </div>
 
                         <div className="flex-1 flex items-center justify-end gap-4 min-w-fit border-l border-slate-100 pl-4 ml-2">
-                           <label className="flex items-center gap-2 cursor-pointer group shrink-0">
-                              <input 
-                                type="checkbox"
-                                checked={isDeleteOriginal}
-                                onChange={(e) => setIsDeleteOriginal(e.target.checked)}
-                                className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
-                              />
-                              <span className="text-[10px] font-black text-slate-500 group-hover:text-red-600 transition-colors">PC원본삭제</span>
-                           </label>
                            <button 
                              onClick={handleDeleteSong}
-                             className={`h-11 px-3 rounded-xl transition-all flex items-center gap-2 font-black text-xs shrink-0 ${
-                               isDeleteOriginal ? 'bg-red-500 text-white shadow-lg shadow-red-200' : 'bg-red-50 text-red-500 hover:bg-red-100'
-                             }`}
+                             className="h-11 px-4 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl transition-all flex items-center gap-2 font-black text-xs shrink-0"
                            >
                              <Trash2 className="w-4 h-4" />
-                             {isDeleteOriginal && <span className="text-[10px]">원본삭제</span>}
+                             <span>악보 삭제</span>
                            </button>
                         </div>
                       </div>
