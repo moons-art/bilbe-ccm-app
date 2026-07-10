@@ -598,7 +598,7 @@ export const ContiEditor: React.FC = () => {
 
         <div className={`bg-white border-b border-slate-100 flex items-center gap-2 overflow-x-auto custom-scrollbar no-print transition-all duration-300 ${isPreviewMode ? 'opacity-0 h-0 p-0 pointer-events-none' : 'opacity-100 h-auto'}`}>
           <div className="flex items-center px-3 py-2 border-r border-slate-100 shrink-0">
-             <TooltipIcon text="악보 이미지 상단의 [+콘티담기] 버튼을 눌러 콘티에 추가합니다." />
+             <TooltipIcon text="좌측 [악보이름]을 선택하면 아래 페이지에 악보가 보입니다. [악보이름]을 좌우로 이동하여 악보번호를 바꿉니다." />
           </div>
           <Reorder.Group axis="x" values={contiItems} onReorder={reorderContiItems} className="px-2 pt-2 pb-5 flex items-center gap-2 flex-1">
            {contiItems.filter(item => !item.isVisible || item.page === 1).map((item, idx) => {

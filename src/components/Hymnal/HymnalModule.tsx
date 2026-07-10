@@ -333,7 +333,7 @@ export const HymnalModule: React.FC = () => {
                       )}
                     </div>
                     <span className="text-[10px] font-black text-indigo-600 group-hover:text-white uppercase tracking-tighter text-center leading-tight mt-1">콘티<br/>에디터</span>
-                    <TooltipIcon text="악보선택-악보상단의 +콘티담기" position="top-right" />
+                    <TooltipIcon text="악보 이미지 상단의 [+콘티담기] 버튼을 눌러 콘티에 추가합니다." position="top-right" />
                   </button>
                   <button 
                     onClick={clearConti}
