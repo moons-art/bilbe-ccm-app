@@ -86,14 +86,21 @@ export const hymnalApi = {
           const files = await gdriveWebService.listFolderFiles(folderName);
           return files.map((file: any, index: number) => {
             const title = file.name.replace(/\.[^/.]+$/, ""); // 확장자 제거
+            const songId = `${album.id}-${file.id}`;
+            const existingSong = baseSongs.find((s: any) => s.id === songId);
             return {
-              id: `${album.id}-${file.id}`,
-              title: title,
-              number: index + 1,
+              id: songId,
+              title: existingSong?.title || title,
+              lyrics: existingSong?.lyrics || '',
+              number: existingSong?.number || index + 1,
+              code: existingSong?.code || '',
+              meter: existingSong?.meter || '',
+              category: existingSong?.category || '',
+              youtubeVideos: existingSong?.youtubeVideos || [],
               albumId: album.id,
               type: 'image',
               fileId: file.id,
-              searchTokens: [title]
+              searchTokens: [existingSong?.title || title]
             };
           });
         } catch (e) {
@@ -163,27 +170,63 @@ export const hymnalApi = {
   },
 
   updateSong: async (song: any) => {
-    const songs = await hymnalApi.getSongs();
-    const idx = songs.findIndex((s: any) => s.id === song.id);
-    if (idx !== -1) {
-      songs[idx] = { ...songs[idx], ...song };
-      try {
-        await gdriveWebService.uploadJsonFile('music_data.json', songs);
-        return { success: true };
-      } catch (e: any) {
-        return { success: false, error: e.message };
-      }
-    }
-    return { success: false, error: '곡을 찾을 수 없습니다.' };
-  },
-
-  deleteSong: async (songId: string, shouldDeleteOriginal?: boolean) => {
-    let songs = await hymnalApi.getSongs();
-    songs = songs.filter((s: any) => s.id !== songId);
+    let baseSongs: any[] = [];
     try {
-      await gdriveWebService.uploadJsonFile('music_data.json', songs);
+      baseSongs = await gdriveWebService.downloadJsonFile('music_data.json') || [];
+    } catch(e) {}
+
+    const idx = baseSongs.findIndex((s: any) => s.id === song.id);
+    if (idx !== -1) {
+      baseSongs[idx] = { ...baseSongs[idx], ...song };
+    } else {
+      baseSongs.push(song);
+    }
+    
+    try {
+      await gdriveWebService.uploadJsonFile('music_data.json', baseSongs);
       return { success: true };
     } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  deleteSong: async (songId: string, shouldDeleteOriginal?: boolean, fileId?: string) => {
+    try {
+      let baseSongs: any[] = [];
+      try {
+        baseSongs = await gdriveWebService.downloadJsonFile('music_data.json') || [];
+      } catch(e) {}
+
+      const songToDelete = baseSongs.find((s: any) => s.id === songId);
+      const targetFileId = fileId || songToDelete?.fileId;
+
+      const newSongs = baseSongs.filter((s: any) => s.id !== songId);
+      await gdriveWebService.uploadJsonFile('music_data.json', newSongs);
+
+      if (shouldDeleteOriginal && targetFileId) {
+        try {
+          await window.gapi.client.drive.files.delete({ fileId: targetFileId });
+        } catch (e) {
+          console.warn('[hymnalApi] 구글 드라이브 파일 삭제 실패:', e);
+        }
+      }
+
+      if (targetFileId) {
+        try {
+          const { imageCache } = await import('../utils/imageCache');
+          await imageCache.removeImage(targetFileId);
+        } catch (e) {
+          console.warn('[hymnalApi] 로컬 캐시 삭제 실패:', e);
+        }
+      }
+
+      const baseData = await gdriveWebService.downloadJsonFile('music_data.json') || [];
+      const updatedBaseData = baseData.filter((s: any) => s.id !== songId);
+      await gdriveWebService.uploadJsonFile('music_data.json', updatedBaseData);
+
+      return { success: true };
+    } catch (e: any) {
+      console.error('[hymnalApi] deleteSong error:', e);
       return { success: false, error: e.message };
     }
   },
@@ -340,33 +383,42 @@ export const hymnalApi = {
     const { compressImageToWebP, uploadImageToGDrive } = await import('../utils/imageProcessor');
     const folderId = await gdriveWebService.getOrCreateFolder(`CEUM_Album_${albumName}`);
 
-    const uploadedSongs = [];
+    const uploadedSongs: any[] = [];
     let processedCount = 0;
+    const CHUNK_SIZE = 5;
 
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
-      try {
-        const compressedBlob = await compressImageToWebP(file, 0.85);
-        const fileName = file.name.replace(/\.[^/.]+$/, "");
-        const fileId = await uploadImageToGDrive(compressedBlob, `${fileName}.webp`, folderId);
+    for (let i = 0; i < files.length; i += CHUNK_SIZE) {
+      const chunk = files.slice(i, i + CHUNK_SIZE);
+      await Promise.all(chunk.map(async (file) => {
+        const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name);
+        if (!isImage) {
+          processedCount++;
+          onProgress(processedCount, files.length);
+          return;
+        }
+        try {
+          const compressedBlob = await compressImageToWebP(file, 0.75);
+          const fileName = file.name.replace(/\.[^/.]+$/, "");
+          const fileId = await uploadImageToGDrive(compressedBlob, `${fileName}.webp`, folderId);
 
-        const numMatch = fileName.match(/\d+/);
-        const number = numMatch ? parseInt(numMatch[0], 10) : uploadedSongs.length + 1;
+          const numMatch = fileName.match(/\d+/);
+          const number = numMatch ? parseInt(numMatch[0], 10) : uploadedSongs.length + 1;
 
-        uploadedSongs.push({
-          id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          title: fileName,
-          number: number,
-          albumId: albumName === '새찬송가' ? 'hymnal' : albumName,
-          type: 'image',
-          fileId: fileId,
-          searchTokens: [fileName]
-        });
-      } catch (err) {
-        console.error(`Failed to upload ${file.name}`, err);
-      }
-      processedCount++;
-      onProgress(processedCount, files.length);
+          uploadedSongs.push({
+            id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            title: fileName,
+            number: number,
+            albumId: albumName === '새찬송가' ? 'hymnal' : albumName,
+            type: 'image',
+            fileId: fileId,
+            searchTokens: [fileName]
+          });
+        } catch (err) {
+          console.error(`Failed to upload ${file.name}`, err);
+        }
+        processedCount++;
+        onProgress(processedCount, files.length);
+      }));
     }
     return uploadedSongs;
   },
@@ -376,30 +428,39 @@ export const hymnalApi = {
     onProgress: (processed: number, total: number) => void
   ) => {
     const { compressImageToWebP, uploadImageToGDrive } = await import('../utils/imageProcessor');
-    const uploadedSongs = [];
+    const uploadedSongs: any[] = [];
     let processedCount = 0;
+    const CHUNK_SIZE = 5;
 
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
-      try {
-        const compressedBlob = await compressImageToWebP(file, 0.85);
-        const fileName = file.name.replace(/\.[^/.]+$/, "");
-        const fileId = await uploadImageToGDrive(compressedBlob, `${fileName}.webp`);
+    for (let i = 0; i < files.length; i += CHUNK_SIZE) {
+      const chunk = files.slice(i, i + CHUNK_SIZE);
+      await Promise.all(chunk.map(async (file) => {
+        const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name);
+        if (!isImage) {
+          processedCount++;
+          onProgress(processedCount, files.length);
+          return;
+        }
+        try {
+          const compressedBlob = await compressImageToWebP(file, 0.75);
+          const fileName = file.name.replace(/\.[^/.]+$/, "");
+          const fileId = await uploadImageToGDrive(compressedBlob, `${fileName}.webp`);
 
-        uploadedSongs.push({
-          id: `misc-${fileId}`,
-          title: fileName,
-          albumId: 'misc',
-          type: 'image',
-          fileId: fileId,
-          searchTokens: [fileName]
-        });
-      } catch (err) {
-        console.error(`Failed to upload ${file.name}`, err);
-      }
-      processedCount++;
-      onProgress(processedCount, files.length);
+          uploadedSongs.push({
+            id: `misc-${fileId}`,
+            title: fileName,
+            albumId: 'misc',
+            type: 'image',
+            fileId: fileId,
+            searchTokens: [fileName]
+          });
+        } catch (err) {
+          console.error(`Failed to upload ${file.name}`, err);
+        }
+        processedCount++;
+        onProgress(processedCount, files.length);
+      }));
     }
     return uploadedSongs;
-  }
+  },
 };

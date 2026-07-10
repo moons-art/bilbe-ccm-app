@@ -20,11 +20,13 @@ import {
   RotateCcw,
   PlayCircle as Youtube,
   ChevronLeft as ChevronLeftIcon,
-  ChevronRight as ChevronRightIcon
+  ChevronRight as ChevronRightIcon,
+  HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SavedContisModal } from './SavedContisModal';
 import { hymnalApi } from '../../api/hymnalApi';
+import { TooltipIcon } from '../TooltipIcon';
 
 const DriveImage = ({ fileId, alt, className }: { fileId: string, alt?: string, className?: string }) => {
   const [src, setSrc] = useState<string | null>(null);
@@ -75,6 +77,7 @@ export const HymnalModule: React.FC = () => {
       setSearchQuery, 
       selectedSongId, 
       setSelectedSongId, 
+      setSongs,
       fetchSongs,
       albums,
       activeAlbumId,
@@ -221,8 +224,8 @@ export const HymnalModule: React.FC = () => {
     
     if (!confirm('수정된 정보를 저장하시겠습니까?')) return;
     
-    const result = await hymnalApi.updateSong({
-      id: selectedSongId,
+    // 1. 낙관적 UI 업데이트 (즉시 화면에 반영)
+    const updatedData = {
       title: editedTitle,
       lyrics: editedLyrics,
       number: editedNumber,
@@ -230,15 +233,17 @@ export const HymnalModule: React.FC = () => {
       meter: editedMeter,
       category: editedCategory,
       youtubeVideos: editedVideos
-    });
+    };
 
-    if (result.success) {
-      setIsEditing(false);
-      await fetchSongs();
-      alert('수정되었습니다.');
-    } else {
-      alert('수정 실패: ' + result.error);
-    }
+    setSongs(prev => prev.map(s => s.id === selectedSongId ? { ...s, ...updatedData } : s));
+    setIsEditing(false);
+
+    // 2. 백그라운드에서 조용히 API 수정 진행
+    hymnalApi.updateSong({ id: selectedSongId, ...updatedData }).then(result => {
+      if (!result.success) {
+        console.error('[HymnalModule] 백그라운드 수정 실패:', result.error);
+      }
+    });
   };
 
   const startEditing = () => {
@@ -262,16 +267,21 @@ export const HymnalModule: React.FC = () => {
       
     if (!confirm(warningMsg)) return;
 
-    const result = await hymnalApi.deleteSong(selectedSongId, true);
+    // 1. 낙관적 UI 업데이트 (즉시 화면에서 제거)
+    const targetFileId = selectedSong?.fileId;
+    const targetSongId = selectedSongId;
     
-    if (result.success) {
-      alert('악보가 삭제되었습니다. (로컬 데이터, 원본 파일 및 구글 드라이브 파일 삭제 완료)');
-      setSelectedSongId(null);
-      setIsEditing(false);
-      await fetchSongs();
-    } else {
-      alert('삭제 실패: ' + result.error);
-    }
+    setSongs(prev => prev.filter(s => s.id !== targetSongId));
+    setSelectedSongId(null);
+    setIsEditing(false);
+
+    // 2. 백그라운드에서 조용히 API 삭제 진행
+    hymnalApi.deleteSong(targetSongId, true, targetFileId).then(result => {
+      if (!result.success) {
+        console.error('[HymnalModule] 백그라운드 삭제 실패:', result.error);
+        // 필요하다면 실패 시 alert 띄우고 fetchSongs()로 롤백 가능
+      }
+    });
   };
 
   return (
@@ -302,15 +312,16 @@ export const HymnalModule: React.FC = () => {
                 <div className="grid grid-cols-3 gap-2 mb-4">
                   <button 
                     onClick={() => setIsLibraryOpen(true)}
-                    className="flex flex-col items-center justify-center p-3 bg-white border border-slate-200 rounded-2xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group shadow-sm"
+                    className="relative flex flex-col items-center justify-center p-3 bg-white border border-slate-200 rounded-2xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group shadow-sm"
                     title="저장된 콘티 저장소 열기"
                   >
                     <Library className="w-5 h-5 text-slate-400 group-hover:text-indigo-600 mb-1" />
                     <span className="text-[10px] font-black text-slate-500 group-hover:text-indigo-600 uppercase tracking-tighter">저장소</span>
+                    <TooltipIcon text="저장된 콘티를 불러옵니다." position="top-right" />
                   </button>
                   <button 
                     onClick={() => setIsEditorOpen(true)}
-                    className="flex flex-col items-center justify-center p-3 bg-indigo-50 border border-indigo-100 rounded-2xl hover:bg-indigo-600 transition-all group shadow-sm"
+                    className="relative flex flex-col items-center justify-center p-3 bg-indigo-50 border border-indigo-100 rounded-2xl hover:bg-indigo-600 transition-all group shadow-sm"
                     title="콘티 편집기 열기"
                   >
                     <div className="relative">
@@ -321,7 +332,8 @@ export const HymnalModule: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] font-black text-indigo-600 group-hover:text-white uppercase tracking-tighter">콘티 에디터</span>
+                    <span className="text-[10px] font-black text-indigo-600 group-hover:text-white uppercase tracking-tighter text-center leading-tight mt-1">콘티<br/>에디터</span>
+                    <TooltipIcon text="악보선택-악보상단의 +콘티담기" position="top-right" />
                   </button>
                   <button 
                     onClick={clearConti}
@@ -353,7 +365,10 @@ export const HymnalModule: React.FC = () => {
                 {filteredSongs.length > 0 ? (
                   <div className="space-y-1.5">
                     <div className="px-3 py-2 flex items-center justify-between">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">곡 리스트</p>
+                      <div className="flex items-center gap-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">곡 리스트</p>
+                        <TooltipIcon text="악보이미지를 처음 볼때와 캐쉬를 삭제한 후, 약간의 로딩시간이 있습니다. 다음부터는 속도가 빨라집니다." />
+                      </div>
                       <span className="text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded-full text-slate-400 font-bold">{filteredSongs.length}</span>
                     </div>
                     {filteredSongs.slice(0, visibleCount).map((song) => (

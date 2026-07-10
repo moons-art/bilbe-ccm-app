@@ -15,67 +15,7 @@ import { BIBLE_BOOKS, BIBLE_LIST } from './constants/bibleMeta';
 import { initGoogleApi } from './api/gdriveWebService';
 
 import { MobilePdfLayout } from './components/Hymnal/MobilePdfLayout';
-
-// --- Tooltip Guide Helper Component ---
-const TooltipIcon = ({ text }: { text: string }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
-
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    document.addEventListener('touchstart', handleOutsideClick);
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('touchstart', handleOutsideClick);
-    };
-  }, []);
-
-  const updatePosition = () => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      // 패드 등에서 오른쪽 화면을 넘어가는 경우 처리
-      const isTooRight = rect.right + 280 > window.innerWidth;
-      setCoords({ 
-        top: rect.top + rect.height / 2, 
-        left: isTooRight ? rect.left - 290 : rect.right + 12 
-      });
-    }
-  };
-
-  return (
-    <div 
-      ref={containerRef}
-      className="relative inline-flex items-center ml-1" 
-      onClick={e => {
-        e.stopPropagation();
-        if (!isOpen) updatePosition();
-        setIsOpen(!isOpen);
-      }}
-      onMouseEnter={() => {
-        updatePosition();
-        setIsOpen(true);
-      }}
-      onMouseLeave={() => setIsOpen(false)}
-    >
-      <HelpCircle className={`w-5 h-5 transition-colors cursor-help ${isOpen ? 'text-indigo-600' : 'text-indigo-400 hover:text-indigo-600'}`} />
-      {isOpen && createPortal(
-        <div 
-          className="fixed w-[280px] p-4 bg-slate-800 text-white text-xs font-bold leading-relaxed rounded-xl shadow-2xl text-left whitespace-pre-wrap z-[99999]"
-          style={{ top: coords.top, left: coords.left, transform: 'translateY(-50%)' }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-};
+import { TooltipIcon } from './components/TooltipIcon';
 
 // --- Bible Navigation Bar Component ---
 interface BibleNavBarProps {
@@ -326,7 +266,7 @@ const MainApp: React.FC = () => {
     lineHeight,
     setLineHeight 
   } = useBible();
-  const { isEditorOpen } = useHymnal();
+  const { isEditorOpen, showAllTooltips, setShowAllTooltips } = useHymnal();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -375,13 +315,14 @@ const MainApp: React.FC = () => {
     localStorage.setItem('bibleSplitPosition', splitPosition.toString());
   }, [splitPosition]);
 
-  // 마우스 드래그 이벤트 핸들러
+  // 마우스/터치 드래그 이벤트 핸들러
   React.useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMove = (e: MouseEvent | TouchEvent) => {
       if (!isResizing || !contentRef.current) return;
       
       const containerRect = contentRef.current.getBoundingClientRect();
-      const newX = e.clientX - containerRect.left;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const newX = clientX - containerRect.left;
       const newPercent = (newX / containerRect.width) * 100;
       
       // 최소 20%, 최대 80% 제한
@@ -390,22 +331,26 @@ const MainApp: React.FC = () => {
       }
     };
 
-    const handleMouseUp = () => {
+    const handleUp = () => {
       setIsResizing(false);
       document.body.style.cursor = 'default';
       document.body.style.userSelect = 'auto'; // 드래그 종료 후 텍스트 선택 허용
     };
 
     if (isResizing) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+      window.addEventListener('touchmove', handleMove, { passive: false });
+      window.addEventListener('touchend', handleUp);
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none'; // 드래그 중 텍스트 선택 방지
     }
 
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
     };
   }, [isResizing]);
 
@@ -526,9 +471,11 @@ const MainApp: React.FC = () => {
           <h1 className="text-4xl font-bold mb-4 text-white">CEUM BIBLE-CCM Cloud <span className="text-indigo-400">1.5</span></h1>
           <p className="mb-6 text-slate-300 max-w-lg leading-relaxed text-sm text-left bg-slate-800/50 p-6 rounded-xl border border-slate-700">
             <span className="block mb-2 font-bold text-indigo-300">📌 클라우드 동기화 안내</span>
-            • <strong>성경번역본</strong>을 추가하면 구글 드라이브에 자동 저장되고 다른 기기에 연동됩니다.<br />
-            • <strong>[폴더 업로드]</strong> 폴더를 업로드 하면 구글 드라이브에 저용량으로 저장되고, 앱은 구글 드라이브에서 악보를 자동 불러옵니다.<br />
-            • <strong>[찬송가 앨범 업로드]</strong> 용량관계로 찬송가의 목록만 빌드되어 있으니, 사용자가 악보를 업로드 해주셔야 합니다.
+            • <strong>성경번역본, 악보</strong>를 추가하면 구글 드라이브에 자동 저장되고 다른 기기에 연동됩니다.<br /><br />
+            <span className="block mb-2 font-bold text-indigo-300">• 앱으로 사용하기</span>
+            사파리: 독에추가, 크롬:페이지를 앱으로 설치<br />
+            모바일: 홈화면 추가<br /><br />
+            <span className="block mb-2 font-bold text-indigo-300">• 업데이트 정보:</span> v.2026.7.11 속도 월등히 개선(로그인, 업로드, 악보편집의 저장, 삭제 반응속도)
           </p>
           <button 
             className={`px-8 py-4 bg-white text-slate-900 rounded-xl font-bold text-lg hover:bg-slate-100 transition shadow-xl ${!isApiLoaded ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1'}`}
@@ -566,15 +513,15 @@ const MainApp: React.FC = () => {
             {isSyncing ? '클라우드 연동 중...' : (isApiLoaded ? '구글 계정으로 시작하기' : 'API 로딩 중...')}
           </button>
           
-          <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-            <p className="text-lg font-black text-red-400 leading-relaxed drop-shadow-md">
-              계정 로그인 후, 구글 클라우드 사용자의 자료가 동기화 됩니다.<br/>
-              앱이 열리면, 약 5~10초 기다려 주세요.
-            </p>
+          <div className="mt-6 text-sm text-slate-500">
+            진행시 구글 드라이브 접근 권한을 요청합니다.
           </div>
           
-          <div className="mt-8 text-sm text-slate-500">
-            진행 시 구글 드라이브 접근 권한을 요청합니다.
+          <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+            <p className="text-lg font-black text-red-400 leading-relaxed drop-shadow-md">
+              계정 로그인 후, 구글 클라우드와 앱의 동기화가 진행됩니다.<br/>
+              번역본과 악보가 뜰때까지 약 5-10초간 기다려 주세요 
+            </p>
           </div>
           
           <div className="mt-4 p-3 bg-slate-800/50 border border-slate-700 rounded-xl text-left max-w-lg w-full">
@@ -703,13 +650,16 @@ const MainApp: React.FC = () => {
 
               {/* Footer Settings */}
               <div className="mt-auto pt-6 border-t border-slate-100">
-                <button 
-                  onClick={() => setShowSettings(true)}
-                  className="flex items-center gap-3 px-4 py-3 w-full hover:bg-slate-50 rounded-xl transition-colors text-slate-500 hover:text-red-600"
-                >
-                  <Settings className="w-5 h-5" />
-                  <span className="text-sm font-medium">설정</span>
-                </button>
+                <div className="flex items-center gap-2 px-4 py-3 w-full hover:bg-slate-50 rounded-xl transition-colors text-slate-500 hover:text-red-600">
+                  <button 
+                    onClick={() => setShowSettings(true)}
+                    className="flex items-center gap-3 flex-1"
+                  >
+                    <Settings className="w-5 h-5" />
+                    <span className="text-sm font-medium">설정</span>
+                  </button>
+                  <TooltipIcon text={currentTab === 'bible' ? "성경 글자 크기, 글꼴 줄간격 수정" : "캐쉬삭제: 기기용량확보를 위해 기기에 저장된 캐쉬를 삭제하세요. 구글드라이브, 악보 목록 및 설정 어디에도 영향주지 않고 보호됩니다."} />
+                </div>
                 <div className="mt-4 px-4 text-center">
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">제작: CEUM ministry</p>
                 </div>
@@ -771,7 +721,7 @@ const MainApp: React.FC = () => {
                     }
                     setIsDualView(!isDualView);
                   }}
-                  className={`flex items-center justify-center gap-2 w-[130px] py-2 rounded-xl transition-all shadow-sm active:scale-95 ${isDualView ? 'bg-indigo-600 text-white shadow-indigo-200 ring-2 ring-indigo-300' : 'bg-white border-2 border-slate-200 text-slate-700 hover:border-indigo-400 hover:text-indigo-600'}`}
+                  className={`flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl transition-all shadow-sm active:scale-95 border ${isDualView ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`}
                   title="두 개 창 보기 (설교 준비용)"
                 >
                   <div className="flex gap-1">
@@ -780,6 +730,14 @@ const MainApp: React.FC = () => {
                   </div>
                   <span className="text-xs font-black tracking-tight">설교준비 듀얼뷰</span>
                 </button>
+                {isDualView && (
+                  <button 
+                    onClick={() => setIsDualView(false)}
+                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-black text-xs shadow-sm ring-2 ring-indigo-300 active:scale-95 ml-1"
+                  >
+                    참조본문 닫기
+                  </button>
+                )}
               </div>
             )}
             
@@ -787,6 +745,12 @@ const MainApp: React.FC = () => {
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
                    <div className="text-sm font-bold text-slate-800">찬송/CCM 관리자</div>
+                   <button 
+                     onClick={() => setShowAllTooltips(!showAllTooltips)}
+                     className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${showAllTooltips ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
+                   >
+                     말풍선 {showAllTooltips ? '끄기' : '켜기'}
+                   </button>
                    <button 
                      onClick={() => setShowSettings(true)}
                      className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl transition-all active:scale-95 group shadow-sm border border-red-100"
@@ -802,24 +766,7 @@ const MainApp: React.FC = () => {
 
             <div className="flex-1"></div>
 
-          {/* ✅ Dynamic Reference Pane Close Button - Aligned with the divider */}
-          {currentTab === 'bible' && isDualView && (
-            <div 
-              className="absolute top-1/2 -translate-y-1/2 z-40 transition-none pl-3" // pl-3 to match typical left margin
-              style={{ left: `${splitPosition}%` }}
-            >
-              <button 
-                onClick={() => setIsDualView(false)}
-                className="flex items-center justify-center gap-2 w-[130px] py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-black text-xs shadow-indigo-200 ring-2 ring-indigo-300 active:scale-95"
-              >
-                <div className="flex gap-0.5">
-                  <div className="w-1 h-3 bg-white/40 rounded-sm" />
-                  <div className="w-1 h-3 bg-white rounded-sm" />
-                </div>
-                참조본문
-              </button>
-            </div>
-          )}
+          {/* 참조본문 닫기 버튼은 이제 위 헤더 내부로 이동되었습니다 */}
 
           <div className="ml-auto flex items-center gap-4">
             {currentTab === 'bible' && (
@@ -926,10 +873,13 @@ const MainApp: React.FC = () => {
                         e.preventDefault();
                         setIsResizing(true);
                       }}
-                      className="absolute top-0 bottom-0 z-30 w-2 -ml-1 cursor-col-resize group flex items-center justify-center transition-all hover:bg-red-500/10 active:bg-red-500/20"
+                      onTouchStart={() => {
+                        setIsResizing(true);
+                      }}
+                      className="absolute top-0 bottom-0 z-30 w-8 -ml-4 cursor-col-resize group flex items-center justify-center transition-all hover:bg-red-500/10 active:bg-red-500/20 touch-none"
                       style={{ left: `${splitPosition}%` }}
                     >
-                      <div className="w-px h-full bg-slate-400 group-hover:bg-red-500 transition-colors" />
+                      <div className="w-1.5 h-full bg-slate-400 group-hover:bg-red-500 transition-colors opacity-50 group-hover:opacity-100" />
                     </div>
                   )}
 
@@ -1347,7 +1297,8 @@ const MainApp: React.FC = () => {
                               const { imageCache } = await import('./utils/imageCache');
                               await imageCache.clearCache();
                               alert('로컬 악보 캐시가 성공적으로 삭제되었습니다.');
-                              updateCacheSize(); // 삭제 즉시 실시간 갱신
+                              setCacheSize('0.00 MB'); // UI 즉각 반영 (IndexedDB GC 지연 보완)
+                              setTimeout(updateCacheSize, 1000); // 1초 뒤 실제 사이즈로 다시 확인
                             } catch (e: any) {
                               alert('캐시 삭제 중 오류 발생: ' + e.message);
                             }

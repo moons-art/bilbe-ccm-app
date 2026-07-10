@@ -402,6 +402,15 @@ export const gdriveWebService = {
     return await response.text();
   },
 
+  deleteBibleFile: async (fileId: string) => {
+    if (!accessToken) throw new Error('Not authenticated');
+    const response = await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!response.ok) throw new Error('Failed to delete bible file');
+  },
+
   uploadBibleFile: async (fileName: string, textData: string) => {
     if (!accessToken) throw new Error('Not authenticated');
     const folderId = await gdriveWebService.getOrCreateFolder('CEUM_Bible_Data');
@@ -514,8 +523,8 @@ export const gdriveWebService = {
       if (!res.ok) return [];
       const data = await res.json();
       const files = data.files || [];
-      // 한국어 자모음 기준 가나다 순 오름차순 정렬
-      return files.sort((a: any, b: any) => a.name.localeCompare(b.name, 'ko'));
+      // 한국어 자모음 및 숫자(자연 정렬) 기준 오름차순 정렬
+      return files.sort((a: any, b: any) => a.name.localeCompare(b.name, 'ko', { numeric: true }));
     } catch (err) {
       console.error(`[gdriveWebService] listFolderFiles for folder '${folderName}' failed`, err);
       return [];

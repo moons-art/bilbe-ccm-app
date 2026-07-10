@@ -98,6 +98,8 @@ interface HymnalContextType {
   editingAlbum: Album | null;
   setEditingAlbum: (album: Album | null) => void;
   
+  showAllTooltips: boolean;
+  setShowAllTooltips: (val: boolean) => void;
   fetchSongs: () => Promise<void>;
   reloadSettings: () => Promise<void>;
   setSongs: React.Dispatch<React.SetStateAction<HymnalSong[]>>;
@@ -139,6 +141,7 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [showAlbumModal, setShowAlbumModal] = useState(false);
   const [showBuilder, setShowBuilder] = useState(false);
   const [editingAlbum, setEditingAlbum] = useState<Album | null>(null);
+  const [showAllTooltips, setShowAllTooltips] = useState(true);
 
   const reloadSettings = async () => {
     const settings = await hymnalApi.getSettings();
@@ -627,6 +630,8 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setShowBuilder,
       editingAlbum,
       setEditingAlbum,
+      showAllTooltips,
+      setShowAllTooltips,
       fetchSongs,
       reloadSettings,
       setSongs,

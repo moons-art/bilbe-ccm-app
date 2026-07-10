@@ -40,7 +40,16 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const idbVersions = await bibleDB.getAllVersions();
         if (idbVersions && idbVersions.length > 0) {
-          loaded = idbVersions;
+          // 중복 번역본 제거 (이름 기준 하나만 유지하고 나머지는 캐시 파기)
+          const uniqueMap = new Map();
+          for (const v of idbVersions) {
+            if (!uniqueMap.has(v.name)) {
+              uniqueMap.set(v.name, v);
+            } else {
+              bibleDB.deleteVersion(v.id).catch(console.error);
+            }
+          }
+          loaded = Array.from(uniqueMap.values());
         } else if (saved) {
           loaded = JSON.parse(saved);
         }
@@ -177,15 +186,37 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [versions, isInitialized]);
 
   const addVersion = (version: BibleVersion) => {
-    setVersions(prev => [...prev.filter(v => v.name !== version.name), version]);
+    setVersions(prev => {
+      const oldVersion = prev.find(v => v.name === version.name);
+      if (oldVersion) {
+        bibleDB.deleteVersion(oldVersion.id).catch(console.error);
+        indexedVersionIds.current.delete(oldVersion.id);
+      }
+      return [...prev.filter(v => v.name !== version.name), version];
+    });
   };
 
   const removeVersion = async (id: string) => {
-    setVersions(prev => {
-      const target = prev.find(v => v.id === id);
-      if (target?.isSystem) return prev;
-      return prev.filter(v => v.id !== id);
-    });
+    const target = versions.find(v => v.id === id);
+    if (target?.isSystem) return;
+
+    // 구글 드라이브에서 파일 삭제
+    if (target && target.name) {
+      import('../api/gdriveWebService').then(async ({ gdriveWebService }) => {
+        try {
+          const files = await gdriveWebService.listBibleFiles();
+          const targetFile = files.find((f: any) => f.name === `${target.name}.txt` || f.name === target.name);
+          if (targetFile) {
+            await gdriveWebService.deleteBibleFile(targetFile.id);
+            console.log(`[Bible Sync] Deleted ${target.name} from Cloud.`);
+          }
+        } catch (e) {
+          console.error('[Bible Sync] Failed to delete from Cloud:', e);
+        }
+      });
+    }
+
+    setVersions(prev => prev.filter(v => v.id !== id));
     setSelectedVersionIds(prev => prev.filter(vid => vid !== id));
     indexedVersionIds.current.delete(id);
     await bibleDB.deleteVersion(id);
@@ -202,6 +233,16 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setSelectedVersionIds(builtIns.map(v => v.id));
         indexedVersionIds.current.clear();
         
+        // 구글 드라이브에서 모든 번역본 파일 삭제
+        import('../api/gdriveWebService').then(async ({ gdriveWebService }) => {
+          try {
+            const files = await gdriveWebService.listBibleFiles();
+            for (const f of files) {
+              await gdriveWebService.deleteBibleFile(f.id).catch(console.error);
+            }
+          } catch (e) { console.error('Failed to clear cloud bibles', e); }
+        });
+
         const all = await bibleDB.getAllVersions();
         for (const v of all) {
           if (!v.isBuiltIn) await bibleDB.deleteVersion(v.id);

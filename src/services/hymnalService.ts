@@ -44,20 +44,67 @@ class HymnalService {
   search(query: string): HymnalSong[] {
     if (!query || !query.trim()) return this.songs;
     
-    // 검색어도 NFC로 정규화하여 데이터와 일치시킵니다.
     const trimmedQuery = query.trim().normalize('NFC');
 
-    // 1. 단순 번호 검색 우선순위 (한 단어일 때만)
+    // 1. 숫자 검색 (곡 번호가 일치하거나, 제목에 해당 숫자가 포함된 경우 모두 노출)
     if (/^\d+$/.test(trimmedQuery)) {
+      const numStr = trimmedQuery;
       const num = parseInt(trimmedQuery, 10);
-      const exactMatch = this.songs.find(s => s.number === num);
-      if (exactMatch) return [exactMatch, ...this.songs.filter(s => s.number !== num).slice(0, 50)];
+      const exactMatches = this.songs.filter(s => 
+        s.number === num || 
+        (s.title && s.title.includes(numStr))
+      );
+      const others = this.songs.filter(s => 
+        s.number !== num && 
+        !(s.title && s.title.includes(numStr))
+      );
+      return [...exactMatches, ...others.slice(0, 50)];
     }
 
-    // 2. 다중 키워드 검색 엔진 (MiniSearch)
-    // 공백으로 구분된 개별 키워드를 MiniSearch의 AND 옵션으로 검색
-    const results = this.miniSearch.search(trimmedQuery);
-    return results as unknown as HymnalSong[];
+    // 2. 텍스트 정제 함수 (특수문자, 공백 등 모두 제거하고 한글, 영문, 숫자만 남김)
+    const cleanStr = (str: string) => {
+      if (!str) return '';
+      return str.normalize('NFC').replace(/[^a-zA-Z가-힣ㄱ-ㅎㅏ-ㅣ0-9]/g, '').toLowerCase();
+    };
+
+    // 검색어를 공백 기준으로 분리 (AND 검색용)
+    const rawSearchTerms = trimmedQuery.split(/\s+/);
+    const searchTerms = rawSearchTerms.map(t => cleanStr(t)).filter(t => t.length > 0);
+
+    if (searchTerms.length === 0) return this.songs;
+
+    // 3. Substring (포함) 검색 - 특수문자/공백 무시
+    const substringMatches = this.songs.filter(song => {
+      // 대상을 하나의 정제된 문자열로 뭉침 (1.많은 사람들 -> 1많은사람들)
+      const targetStr = cleanStr([
+        song.title || '', 
+        song.lyrics || '', 
+        song.category || '', 
+        song.searchTokens || ''
+      ].join(' '));
+      
+      // 분리된 모든 검색어 조각이 targetStr에 포함되어야 함 (AND 조건)
+      return searchTerms.every(term => targetStr.includes(term));
+    });
+
+    // 4. MiniSearch를 통한 유사도 검색 (보조)
+    const miniResults = this.miniSearch.search(trimmedQuery);
+
+    // 5. 결과 병합 (정확한 Substring 일치 우선)
+    const combined = [...substringMatches];
+    const seen = new Set(substringMatches.map(s => s.id));
+    
+    for (const res of miniResults) {
+       if (!seen.has(res.id)) {
+          const originalSong = this.songs.find(s => s.id === res.id);
+          if (originalSong) {
+            combined.push(originalSong);
+            seen.add(res.id);
+          }
+       }
+    }
+
+    return combined;
   }
 
   getSongById(id: string): HymnalSong | undefined {

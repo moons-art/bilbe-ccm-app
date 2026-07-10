@@ -11,65 +11,7 @@ import {
 } from 'lucide-react';
 import { hymnalApi } from '../../api/hymnalApi';
 
-// --- Tooltip Guide Helper Component ---
-const TooltipIcon = ({ text }: { text: string }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
-
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    document.addEventListener('touchstart', handleOutsideClick);
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('touchstart', handleOutsideClick);
-    };
-  }, []);
-
-  const updatePosition = () => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const isTooRight = rect.right + 280 > window.innerWidth;
-      setCoords({ 
-        top: rect.top + rect.height / 2, 
-        left: isTooRight ? rect.left - 290 : rect.right + 12 
-      });
-    }
-  };
-
-  return (
-    <div 
-      ref={containerRef}
-      className="relative inline-flex items-center ml-1" 
-      onClick={e => {
-        e.stopPropagation();
-        if (!isOpen) updatePosition();
-        setIsOpen(!isOpen);
-      }}
-      onMouseEnter={() => {
-        updatePosition();
-        setIsOpen(true);
-      }}
-      onMouseLeave={() => setIsOpen(false)}
-    >
-      <HelpCircle className={`w-5 h-5 transition-colors cursor-help ${isOpen ? 'text-indigo-600' : 'text-indigo-400 hover:text-indigo-600'}`} />
-      {isOpen && createPortal(
-        <div 
-          className="fixed w-[280px] p-4 bg-slate-800 text-white text-xs font-bold leading-relaxed rounded-xl shadow-2xl text-left whitespace-pre-wrap z-[99999]"
-          style={{ top: coords.top, left: coords.left, transform: 'translateY(-50%)' }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-};
+import { TooltipIcon } from '../TooltipIcon';
 
 export const HymnalSidebar: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
@@ -104,7 +46,8 @@ export const HymnalSidebar: React.FC = () => {
 
       // 2. 선택한 폴더 내 파일 중 이미 등록된 파일명을 가진 파일 제외 (중복 건너뛰기)
       const filesToUpload = files.filter(file => {
-        if (!file.type.startsWith('image/')) return false;
+        const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name);
+        if (!isImage) return false;
         const fileName = file.name.replace(/\.[^/.]+$/, "");
         return !existingTitles.has(fileName);
       });
@@ -152,7 +95,8 @@ export const HymnalSidebar: React.FC = () => {
       const existingTitles = new Set(miscSongs.map(s => s.title));
 
       const filesToUpload = files.filter(file => {
-        if (!file.type.startsWith('image/')) return false;
+        const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name);
+        if (!isImage) return false;
         const fileName = file.name.replace(/\.[^/.]+$/, "");
         return !existingTitles.has(fileName);
       });
@@ -242,6 +186,18 @@ export const HymnalSidebar: React.FC = () => {
 
       {/* 업로드 도구 섹션 */}
       <div className="space-y-6">
+        {/* 가이드 문구 */}
+        <div className="space-y-1.5 p-3 bg-slate-50 border border-slate-100 rounded-xl">
+          <div className="flex items-center text-[11px] font-bold text-slate-600">
+            + 기존앨범에 악보 추가하기
+            <TooltipIcon text="빈폴더에 악보를 넣고 [폴더 업로드]-[기존 앨범명 입력]" />
+          </div>
+          <div className="flex items-center text-[11px] font-bold text-slate-600">
+            + 악보 삭제하기
+            <TooltipIcon text="우측 악보 화면에서 상세편집 버튼을 눌러 개별 악보를 지울 수 있습니다." />
+          </div>
+        </div>
+
         {/* PC용 업로드 */}
         <div className="space-y-2">
           <h2 className="text-[11px] font-bold text-indigo-400 uppercase px-2 mb-2 flex items-center">
@@ -255,7 +211,7 @@ export const HymnalSidebar: React.FC = () => {
             <FolderUp className="w-5 h-5 group-hover:-translate-y-1 transition-transform" />
             <div className="flex items-center">
               <span className="text-xs font-bold">{isSyncing ? '업로드 준비 중...' : '폴더 업로드'}</span>
-              <TooltipIcon text="폴더를 업로드 하면 구글 드라이브에 저용량으로 저장되고, 앱은 구글 드라이브에서 악보를 자동 불러옵니다. + 폴더명으로 새앨범이 추가 됩니다" />
+              <TooltipIcon text="폴더를 업로드 하면 구글드라이브에 저용량으로 저장되고 앱이 악보를 자동으로 불러옵니다. [앨범 이름]을 입력하여 상단 [앨범 리스트]에 추가됩니다." />
             </div>
           </button>
           
@@ -278,13 +234,14 @@ export const HymnalSidebar: React.FC = () => {
           <button 
             onClick={handleSingleFileUpload}
             disabled={isSyncing}
-            className="w-full p-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-200 transition-all flex flex-col items-center gap-2 group shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full p-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-200 transition-all flex flex-col items-center gap-2 group shadow-sm disabled:opacity-50 disabled:cursor-not-allowed relative"
           >
-            <FilePlus className="w-5 h-5 group-hover:scale-110 transition-transform" />
-            <div className="flex items-center">
-              <span className="text-xs font-bold">{isSyncing ? '업로드 준비 중...' : '파일 추가 (낱개 악보)'}</span>
-              <TooltipIcon text="기기의 폴더를 열어 악보를 개별로 추가하는 기능입니다. 구글 드라이브(CEUM_ccm_data)에 연동되어 저장되며, 앱의 [기타파일] 앨범에 자동으로 추가됩니다." />
+            <FilePlus className="w-5 h-5 group-hover:-translate-y-1 transition-transform" />
+            <div className="flex flex-col items-center">
+              <span className="text-sm font-black text-slate-700 leading-tight">파일추가</span>
+              <span className="text-[10px] text-slate-500 font-bold mt-0.5">(낱개악보)</span>
             </div>
+            <TooltipIcon text="기기 내부 폴더를 열어 악보를 추가 하는 기능입니다. 앱의 [기타파일앨범]에 악보가 추가됩니다." position="top-right" />
           </button>
         </div>
 

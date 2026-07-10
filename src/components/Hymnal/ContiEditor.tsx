@@ -16,65 +16,7 @@ import { LeaderViewer } from './LeaderViewer';
 
 const MARGIN_PX = 55; // 안전 여백
 
-// --- Tooltip Guide Helper Component ---
-const TooltipIcon = ({ text }: { text: string }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
-
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    document.addEventListener('touchstart', handleOutsideClick);
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('touchstart', handleOutsideClick);
-    };
-  }, []);
-
-  const updatePosition = () => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const isTooRight = rect.right + 280 > window.innerWidth;
-      setCoords({ 
-        top: rect.top + rect.height / 2, 
-        left: isTooRight ? rect.left - 290 : rect.right + 12 
-      });
-    }
-  };
-
-  return (
-    <div 
-      ref={containerRef}
-      className="relative inline-flex items-center ml-1" 
-      onClick={e => {
-        e.stopPropagation();
-        if (!isOpen) updatePosition();
-        setIsOpen(!isOpen);
-      }}
-      onMouseEnter={() => {
-        updatePosition();
-        setIsOpen(true);
-      }}
-      onMouseLeave={() => setIsOpen(false)}
-    >
-      <HelpCircle className={`w-5 h-5 transition-colors cursor-help ${isOpen ? 'text-indigo-600' : 'text-indigo-400 hover:text-indigo-600'}`} />
-      {isOpen && createPortal(
-        <div 
-          className="fixed w-[280px] p-4 bg-slate-800 text-white text-xs font-bold leading-relaxed rounded-xl shadow-2xl text-left whitespace-pre-wrap z-[99999]"
-          style={{ top: coords.top, left: coords.left, transform: 'translateY(-50%)' }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-};
+import { TooltipIcon } from '../TooltipIcon';
 
 // --- Optimized Local Slider Component ---
 const SmoothSlider = memo(({ 
@@ -656,7 +598,7 @@ export const ContiEditor: React.FC = () => {
 
         <div className={`bg-white border-b border-slate-100 flex items-center gap-2 overflow-x-auto custom-scrollbar no-print transition-all duration-300 ${isPreviewMode ? 'opacity-0 h-0 p-0 pointer-events-none' : 'opacity-100 h-auto'}`}>
           <div className="flex items-center px-3 py-2 border-r border-slate-100 shrink-0">
-             <TooltipIcon text="악보제목을 눌러 사용하고, 좌우로 순서를 이동할수 있습니다" />
+             <TooltipIcon text="우측 악보 화면에서 상단의 [+콘티담기] 눌러 콘티에 추가 합니다." />
           </div>
           <Reorder.Group axis="x" values={contiItems} onReorder={reorderContiItems} className="px-2 pt-2 pb-5 flex items-center gap-2 flex-1">
            {contiItems.filter(item => !item.isVisible || item.page === 1).map((item, idx) => {
