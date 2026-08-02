@@ -100,7 +100,19 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
     if (!googleUserId) return;
     const docRef = doc(db, 'users', googleUserId, 'sermons', id);
     const date = new Date().toISOString().split('T')[0];
-    await setDoc(docRef, { title, content, date }, { merge: true });
+    try {
+      if (!googleUserId) {
+        throw new Error('Google User ID is missing');
+      }
+      const docRef = doc(db, 'users', googleUserId, 'sermons', id);
+      const date = new Date().toISOString().split('T')[0];
+      await setDoc(docRef, { title, content, date }, { merge: true });
+      setSaveStatus('saved');
+    } catch (err: any) {
+      console.error('[SermonSidebar] Save error:', err);
+      setSaveStatus('unsaved');
+      alert(`[디버그] 설교문 파이어베이스 저장 실패: ${err.message}`);
+    }
   };
 
   const handleDeleteSermon = async (id: string, e: React.MouseEvent) => {
@@ -129,6 +141,7 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
   
   const [view, setView] = useState<'list' | 'editor'>('list');
   const [activeSermonId, setActiveSermonId] = useState<string | null>(null);
+  const [editorTitle, setEditorTitle] = useState('');
   const [editorContent, setEditorContent] = useState('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,13 +165,12 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(async () => {
       setSaveStatus('saving');
-      const titleInput = document.getElementById('sermon-title-input') as HTMLInputElement;
-      const title = titleInput?.value?.trim() || '제목 없음';
-      await handleSaveSermon(activeSermonId, title, editorContent);
+      const titleToSave = editorTitle.trim() || '제목 없음';
+      await handleSaveSermon(activeSermonId, titleToSave, editorContent);
       setSaveStatus('saved');
     }, 2000);
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
-  }, [editorContent]);
+  }, [editorTitle, editorContent]);
 
   const [isResizing, setIsResizing] = useState(false);
 
@@ -262,22 +274,17 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
   const openEditor = (id: string) => {
     setActiveSermonId(id);
     setView('editor');
-    if (id.startsWith('new')) {
-      setEditorContent('');
-      // Reset title input
-      setTimeout(() => {
-        const titleInput = document.getElementById('sermon-title-input') as HTMLInputElement;
-        if (titleInput) titleInput.value = '';
-      }, 50);
-    } else {
-      // Load content from Firestore data (already synced in sermons state)
-      const sermon = sermons.find(s => s.id === id);
-      setEditorContent(sermon?.content || '');
-      setTimeout(() => {
-        const titleInput = document.getElementById('sermon-title-input') as HTMLInputElement;
-        if (titleInput) titleInput.value = sermon?.title || '';
-      }, 50);
-    }
+    const sermon = sermons.find(s => s.id === id);
+    setEditorTitle(sermon?.title || '');
+    setEditorContent(sermon?.content || '');
+  };
+
+  const createNewEditor = () => {
+    const newId = `sermon-${Date.now()}`;
+    setActiveSermonId(newId);
+    setView('editor');
+    setEditorTitle('');
+    setEditorContent('');
   };
 
   useEffect(() => {
@@ -508,9 +515,8 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
                     onClick={async () => {
                       if (activeSermonId) {
                         setSaveStatus('saving');
-                        const titleInput = document.getElementById('sermon-title-input') as HTMLInputElement;
-                        const title = titleInput?.value?.trim() || '제목 없음';
-                        await handleSaveSermon(activeSermonId, title, editorContent);
+                        const titleToSave = editorTitle.trim() || '제목 없음';
+                        await handleSaveSermon(activeSermonId, titleToSave, editorContent);
                         setSaveStatus('saved');
                       }
                     }}
@@ -543,7 +549,7 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
               
               <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/30 custom-scrollbar">
                 <button 
-                  onClick={() => openEditor(`new-${Date.now()}`)}
+                  onClick={createNewEditor}
                   className="w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-indigo-200 rounded-xl text-indigo-600 text-sm font-bold hover:bg-indigo-50 hover:border-indigo-400 transition-all active:scale-95"
                 >
                   <Plus className="w-4 h-4" /> 새 설교문 작성하기
@@ -561,10 +567,17 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
                         <Calendar className="w-3 h-3" /> {s.date}
                       </p>
                     </div>
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
                         <FileEdit className="w-4 h-4" />
                       </div>
+                      <button 
+                        onClick={(e) => handleDeleteSermon(s.id, e)}
+                        className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center text-red-600 hover:bg-red-100 hover:scale-110 transition-all z-10"
+                        title="설교문 삭제"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -600,20 +613,8 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
                 type="text" 
                 placeholder="설교 제목..." 
                 className="w-full text-lg font-black text-slate-900 border-b border-slate-100 outline-none px-6 py-4 placeholder:text-slate-300 shrink-0"
-                onChange={() => {
-                  // 제목 변경도 자동저장 트리거 (editorContent 상태 미세 변경으로 debounce 재실행)
-                  setEditorContent(prev => prev);
-                  setSaveStatus('unsaved');
-                  if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-                  autoSaveTimerRef.current = setTimeout(async () => {
-                    if (!activeSermonId || !googleUserId) return;
-                    setSaveStatus('saving');
-                    const titleInput = document.getElementById('sermon-title-input') as HTMLInputElement;
-                    const title = titleInput?.value?.trim() || '제목 없음';
-                    await handleSaveSermon(activeSermonId, title, editorContent);
-                    setSaveStatus('saved');
-                  }, 2000);
-                }}
+                value={editorTitle}
+                onChange={(e) => setEditorTitle(e.target.value)}
               />
               <textarea 
                 style={{ fontSize: `${sermonFontSize}px` }}

@@ -1,14 +1,18 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, X, MessageSquare, Link2, FileEdit, Trash2, Send, Type, Plus, Minus } from 'lucide-react';
+import { X, Copy, Type, Plus, Minus, Send, Trash2, BookOpen, MessageSquare, Link2, FileEdit } from 'lucide-react';
 import { BIBLE_LIST } from '../constants/bibleMeta';
+import { parseBibleReferences, syncBidirectionalCrossRefs } from '../utils/crossRefParser';
+
+import { useBible } from '../stores/BibleContext';
 
 export interface PopupState {
   id: string;
   bookId: string;
   chapter: number;
   verse: number;
-  panel: 'note' | 'crossRef' | 'sermon';
+  endVerse?: number;
+  panel: 'note' | 'crossRef' | 'sermon' | 'read';
   pos: { x: number; y: number };
   size: { width: number; height: number };
   zIndex: number;
@@ -25,18 +29,40 @@ interface BiblePopupProps {
   fontSizes: any;
   handleFontSizeChange: (delta: number, panel: string) => void;
   onSendToSermon?: (text: string) => void;
+  onNavigateToDualView?: (bookId: string, chapter: number, verse: number) => void;
+  onOpenPopup?: (bookId: string, chapter: number, verse: number, type: 'note' | 'crossRef' | 'sermon' | 'read', endVerse?: number) => void;
 }
 
 export const BiblePopup: React.FC<BiblePopupProps> = ({
   popup, onClose, onBringToFront, onUpdatePos, onUpdateSize,
-  verseData, setVerseData, fontSizes, handleFontSizeChange, onSendToSermon
+  verseData, setVerseData, fontSizes, handleFontSizeChange, onSendToSermon, onNavigateToDualView, onOpenPopup
 }) => {
-  const { id, bookId, chapter, verse, panel, pos, size, zIndex } = popup;
+  const { id, bookId, chapter, verse, panel, pos, size, zIndex, endVerse } = popup;
   const currentFontSize = fontSizes[panel] || 15;
+  const { versions } = useBible();
   
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0, initX: 0, initY: 0, initW: 0, initH: 0 });
+
+  let readContent = '';
+  let activeVersionName = '';
+  if (panel === 'read') {
+    const activeVersion = versions && versions.length > 0 ? versions[0] : null;
+    activeVersionName = activeVersion?.name || '성경';
+    if (activeVersion && activeVersion.verses) {
+      const startV = verse;
+      const endV = endVerse || verse;
+      const targetVerses = activeVersion.verses.filter((v: any) => 
+        v.bookId === bookId && v.chapter === chapter && v.verse >= startV && v.verse <= endV
+      ).sort((a: any, b: any) => a.verse - b.verse);
+      
+      if (targetVerses.length > 0) {
+        readContent = targetVerses.map((v: any) => `${v.verse}. ${v.content}`).join('\n');
+      }
+    }
+    if (!readContent) readContent = '성경 데이터를 불러올 수 없습니다.';
+  }
 
   useEffect(() => {
     if (!isDragging && !isResizing) return;
@@ -142,36 +168,51 @@ export const BiblePopup: React.FC<BiblePopupProps> = ({
           setIsDragging(true);
         }}
       >
-        <div className="flex items-center gap-2">
-          {panel === 'note' && <MessageSquare className="w-4 h-4 text-yellow-600" />}
-          {panel === 'crossRef' && <Link2 className="w-4 h-4 text-blue-600" />}
-          {panel === 'sermon' && <FileEdit className="w-4 h-4 text-indigo-600" />}
+        <div className="flex items-center gap-2 text-indigo-600">
+          {panel === 'note' && <MessageSquare className="w-4 h-4" />}
+          {panel === 'crossRef' && <Link2 className="w-4 h-4" />}
+          {panel === 'sermon' && <FileEdit className="w-4 h-4" />}
+          {panel === 'read' && <BookOpen className="w-4 h-4" />}
           <span className="font-extrabold text-sm text-slate-800">
-            {BIBLE_LIST.find(b => b.id === bookId)?.name} {chapter}장 {verse}절
+            {BIBLE_LIST.find(b => b.id === bookId)?.name} {chapter}장 {verse}{popup.endVerse ? `-${popup.endVerse}` : ''}절
             {panel === 'note' && ' 주석'}
             {panel === 'crossRef' && ' 관주'}
             {panel === 'sermon' && ' 구절노트'}
+            {panel === 'read' && ' 성경 확인'}
           </span>
         </div>
         <div className="flex items-center gap-1 z-[10002]">
-          <button 
-            className="p-1.5 hover:bg-red-100 rounded-full transition-colors text-red-500"
-            onClick={(e) => {
-              e.stopPropagation();
-              const key = `${bookId}_${chapter}_${verse}`;
-              setVerseData((prev: any) => {
-                const next = { ...prev };
-                if (panel === 'crossRef' && next[key]?.crossRef) {
-                  // auto-unlink logic goes here if fully implemented
-                }
-                if (next[key]) delete next[key][panel];
-                return next;
-              });
-              onClose(id);
-            }}
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {panel !== 'read' && (
+            <button 
+              className="p-1.5 hover:bg-red-100 rounded-full transition-colors text-red-500"
+              onClick={(e) => {
+                e.stopPropagation();
+                const key = `${bookId}_${chapter}_${verse}`;
+                setVerseData((prev: any) => {
+                  let next = { ...prev };
+                  const oldText = next[key]?.[panel] || '';
+                  
+                  if (panel === 'crossRef' && oldText) {
+                    const currentBookName = BIBLE_LIST.find(b => b.id === bookId)?.name || '';
+                    next = syncBidirectionalCrossRefs(key, currentBookName, chapter, verse, '', oldText, next);
+                  }
+                  
+                  if (next[key]) {
+                    next[key] = { ...next[key] };
+                    delete next[key][panel];
+                    
+                    if (!next[key].note && !next[key].crossRef && !next[key].sermon) {
+                      delete next[key];
+                    }
+                  }
+                  return next;
+                });
+                onClose(id);
+              }}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
           <button 
             onClick={(e) => { e.stopPropagation(); onClose(id); }}
             className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
@@ -185,18 +226,33 @@ export const BiblePopup: React.FC<BiblePopupProps> = ({
       <div className="p-2 bg-white flex flex-col gap-1.5 h-full relative" onMouseDown={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border border-slate-200 rounded-xl mb-1">
           <div className="flex items-center gap-1">
-            <button onClick={() => handleFontSizeChange(-1, panel)} className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
-              <div className="flex items-center"><Type className="w-3 h-3" /><Minus className="w-2.5 h-2.5" /></div>
-            </button>
-            <span className="text-xs font-bold text-slate-400 min-w-4 text-center">{currentFontSize}</span>
-            <button onClick={() => handleFontSizeChange(1, panel)} className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
-              <div className="flex items-center"><Type className="w-4 h-4" /><Plus className="w-3 h-3" /></div>
-            </button>
+            {panel !== 'read' ? (
+              <>
+                <button onClick={() => handleFontSizeChange(-1, panel)} className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
+                  <div className="flex items-center"><Type className="w-3 h-3" /><Minus className="w-2.5 h-2.5" /></div>
+                </button>
+                <span className="text-xs font-bold text-slate-400 min-w-4 text-center">{currentFontSize}</span>
+                <button onClick={() => handleFontSizeChange(1, panel)} className="p-1.5 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
+                  <div className="flex items-center"><Type className="w-4 h-4" /><Plus className="w-3 h-3" /></div>
+                </button>
+              </>
+            ) : <div />}
           </div>
           <div className="flex items-center gap-2">
+            {panel === 'read' && onNavigateToDualView && (
+              <button 
+                onClick={() => {
+                  onNavigateToDualView(bookId, chapter, verse);
+                  onClose(id);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-slate-200 rounded-lg text-indigo-600 transition-colors text-xs font-bold border border-indigo-100"
+              >
+                바로가기
+              </button>
+            )}
             <button 
               onClick={() => {
-                const text = verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || '';
+                const text = panel === 'read' ? readContent : (verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || '');
                 if (text) { navigator.clipboard.writeText(text); alert('복사되었습니다.'); }
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors text-xs font-bold"
@@ -217,22 +273,72 @@ export const BiblePopup: React.FC<BiblePopupProps> = ({
           </div>
         </div>
         
-        <textarea 
-          autoFocus
-          style={{ fontSize: `${currentFontSize}px` }}
-          className="w-full flex-1 p-3 text-slate-900 bg-slate-50 font-medium border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400/20 transition-all resize-none custom-scrollbar"
-          value={verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || ''}
-          onChange={(e) => {
-            const val = e.target.value;
-            setVerseData((prev: any) => ({
-              ...prev,
-              [`${bookId}_${chapter}_${verse}`]: {
-                ...prev[`${bookId}_${chapter}_${verse}`],
-                [panel]: val
-              }
-            }));
-          }}
-        />
+        {panel === 'crossRef' && (() => {
+          const text = verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || '';
+          const parsed = parseBibleReferences(text);
+          if (parsed.length > 0) {
+            return (
+              <div className="flex flex-wrap gap-1.5 px-2 py-1">
+                {parsed.map((p, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      if (onOpenPopup) {
+                        onOpenPopup(p.bookId, p.chapter, p.verse, 'read', p.endVerse);
+                      }
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-md text-[11px] font-bold transition-colors border border-indigo-100 shadow-sm"
+                  >
+                    <BookOpen className="w-3 h-3" />
+                    {p.bookName} {p.chapter}:{p.verse}{p.endVerse ? `-${p.endVerse}` : ''}
+                  </button>
+                ))}
+              </div>
+            );
+          }
+          return null;
+        })()}
+        
+        {panel === 'read' ? (
+          <div 
+            style={{ fontSize: `${currentFontSize}px` }}
+            className="w-full flex-1 p-4 text-slate-900 bg-white font-medium border border-slate-200 rounded-xl overflow-y-auto custom-scrollbar leading-relaxed"
+          >
+            <div className="font-bold text-sm text-indigo-600 mb-2 border-b border-indigo-100 pb-2">
+              [{activeVersionName}] {BIBLE_LIST.find(b => b.id === bookId)?.name} {chapter}장 {verse}{popup.endVerse ? `-${popup.endVerse}` : ''}절
+            </div>
+            <div className="whitespace-pre-wrap">{readContent}</div>
+          </div>
+        ) : (
+          <textarea 
+            autoFocus
+            style={{ fontSize: `${currentFontSize}px` }}
+            className="w-full flex-1 p-3 text-slate-900 bg-slate-50 font-medium border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400/20 transition-all resize-none custom-scrollbar"
+            value={verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              const oldVal = verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || '';
+              const key = `${bookId}_${chapter}_${verse}`;
+              
+              setVerseData((prev: any) => {
+                let next = {
+                  ...prev,
+                  [key]: {
+                    ...prev[key],
+                    [panel]: val
+                  }
+                };
+
+                if (panel === 'crossRef') {
+                  const currentBookName = BIBLE_LIST.find(b => b.id === bookId)?.name || '';
+                  next = syncBidirectionalCrossRefs(key, currentBookName, chapter, verse, val, oldVal, next);
+                }
+
+                return next;
+              });
+            }}
+          />
+        )}
       </div>
     </motion.div>
   );

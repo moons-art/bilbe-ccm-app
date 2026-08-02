@@ -18,6 +18,7 @@ interface BibleViewerProps {
   isMainPane?: boolean;
   headerRightNode?: React.ReactNode;
   onCopyToSermon?: (text: string) => void;
+  onNavigateToDualView?: (bookId: string, chapter: number, verse: number) => void;
 }
 
 const VerseItem = React.memo<{
@@ -92,7 +93,7 @@ const VerseItem = React.memo<{
 });
 
 export const BibleViewer = React.memo<BibleViewerProps>(({ 
-  selectedVersions, currentBookId, currentChapter = 1, highlightVerse, fontSize = 16, lineHeight, isMainPane = true, headerRightNode, onCopyToSermon, onSendToSermon
+  selectedVersions, currentBookId, currentChapter = 1, highlightVerse, fontSize = 16, lineHeight, isMainPane = true, headerRightNode, onCopyToSermon, onNavigateToDualView
 }) => {
   const scrollContainerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [selectedVerses, setSelectedVerses] = useState<Set<number>>(new Set());
@@ -117,22 +118,26 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
     localStorage.setItem('bible-app-editor-fonts', JSON.stringify(fontSizes));
   }, [fontSizes]);
 
-  const handleIconClick = React.useCallback((v: number, type: 'note' | 'crossRef' | 'sermon', e: React.MouseEvent) => {
-    e.stopPropagation();
-    const id = `${currentBookId}_${currentChapter}_${v}_${type}`;
+  const openSpecificPopup = React.useCallback((b: string, c: number, v: number, type: 'note' | 'crossRef' | 'sermon' | 'read', endVerse?: number) => {
+    const id = `${b}_${c}_${v}_${endVerse ? endVerse + '_' : ''}${type}`;
     setPopups(prev => {
       if (prev.find(p => p.id === id)) {
         return prev.map(p => p.id === id ? { ...p, zIndex: (window.__topZIndex || 10000) + 1 } : p);
       }
       return [...prev, {
-        id, bookId: currentBookId, chapter: currentChapter, verse: v, panel: type,
+        id, bookId: b, chapter: c, verse: v, endVerse, panel: type,
         pos: { x: 0, y: 0 }, size: { width: Math.min(600, window.innerWidth * 0.9), height: 350 },
         zIndex: (window.__topZIndex || 10000) + 1
       }];
     });
     window.__topZIndex = (window.__topZIndex || 10000) + 1;
     setTopZIndex(window.__topZIndex);
-  }, [currentBookId, currentChapter, topZIndex]);
+  }, []);
+
+  const handleIconClick = React.useCallback((v: number, type: 'note' | 'crossRef' | 'sermon' | 'read', e: React.MouseEvent) => {
+    e.stopPropagation();
+    openSpecificPopup(currentBookId, currentChapter, v, type);
+  }, [currentBookId, currentChapter, openSpecificPopup]);
 
   const closePopup = React.useCallback((id: string) => setPopups(prev => prev.filter(p => p.id !== id)), []);
   
@@ -499,7 +504,9 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
               setVerseData={setVerseData}
               fontSizes={fontSizes}
               handleFontSizeChange={handleFontSizeChange}
-              onSendToSermon={onSendToSermon}
+              onSendToSermon={onCopyToSermon}
+              onOpenPopup={openSpecificPopup}
+              onNavigateToDualView={onNavigateToDualView}
             />
           ))}
         </AnimatePresence>,

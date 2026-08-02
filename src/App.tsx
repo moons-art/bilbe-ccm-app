@@ -481,21 +481,21 @@ const MainApp: React.FC = () => {
   };
 
   // ✅ 1단계: 강제 로그인 스플래시 화면
-  if (false && !isAuthenticated) {
+  if (!isAuthenticated) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white font-sans">
         <div className="text-center flex flex-col items-center">
           <div className="w-24 h-24 bg-indigo-500 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/50">
             <span className="text-4xl font-black text-white">C</span>
           </div>
-          <h1 className="text-4xl font-bold mb-4 text-white">CEUM BIBLE-CCM Cloud <span className="text-indigo-400">1.5</span></h1>
+          <h1 className="text-4xl font-bold mb-4 text-white">CEUM BIBLE-CCM Cloud <span className="text-indigo-400">2.0</span></h1>
           <p className="mb-6 text-slate-300 max-w-lg leading-relaxed text-sm text-left bg-slate-800/50 p-6 rounded-xl border border-slate-700">
             <span className="block mb-2 font-bold text-indigo-300">📌 클라우드 동기화 안내</span>
             • <strong>성경번역본, 악보</strong>를 추가하면 구글 드라이브에 자동 저장되고 다른 기기에 연동됩니다.<br /><br />
             <span className="block mb-2 font-bold text-indigo-300">• 앱으로 사용하기</span>
             사파리: 독에추가, 크롬:페이지를 앱으로 설치<br />
             모바일: 홈화면 추가<br /><br />
-            <span className="block mb-2 font-bold text-indigo-300">• 업데이트 정보:</span> v.2026.7.11 속도 월등히 개선(로그인, 업로드, 악보편집의 저장, 삭제 반응속도)
+            <span className="block mb-2 font-bold text-indigo-300">• 업데이트 정보:</span> v.2026.8.3 성경앱 설교준비 기능 추가
           </p>
           <button 
             className={`px-8 py-4 bg-white text-slate-900 rounded-xl font-bold text-lg hover:bg-slate-100 transition shadow-xl ${!isApiLoaded ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1'}`}
@@ -533,9 +533,7 @@ const MainApp: React.FC = () => {
             {isSyncing ? '클라우드 연동 중...' : (isApiLoaded ? '구글 계정으로 시작하기' : 'API 로딩 중...')}
           </button>
           
-          <div className="mt-6 text-sm text-slate-500">
-            진행시 구글 드라이브 접근 권한을 요청합니다.
-          </div>
+          {/* 구글 드라이브 권한 문구 삭제 */}
           
           <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
             <p className="text-lg font-black text-red-400 leading-relaxed drop-shadow-md">
@@ -927,6 +925,10 @@ const MainApp: React.FC = () => {
                           setClipboardSermonText(text);
                           setIsSermonSidebarOpen(true);
                         }}
+                        onNavigateToDualView={(bId, chapter, verse) => {
+                          setIsDualView(true);
+                          setRightNav({ bookId: bId, chapter, verse, scrollTrigger: Date.now() });
+                        }}
                       />
                     </div>
                   </div>
@@ -991,6 +993,10 @@ const MainApp: React.FC = () => {
                           onCopyToSermon={(text) => {
                             setClipboardSermonText(text);
                             setIsSermonSidebarOpen(true);
+                          }}
+                          onNavigateToDualView={(bId, chapter, verse) => {
+                            setIsDualView(true);
+                            setRightNav({ bookId: bId, chapter, verse, scrollTrigger: Date.now() });
                           }}
                         />
                       </div>

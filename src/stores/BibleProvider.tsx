@@ -14,10 +14,15 @@ const fetchGoogleUserId = async (token: string): Promise<string | null> => {
     const res = await fetch(
       `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}`
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errorText = await res.text();
+      alert(`[디버그] 구글 사용자 프로필 가져오기 실패 (HTTP ${res.status}): ${errorText}`);
+      return null;
+    }
     const data = await res.json();
     return data.id || data.sub || null; // Google 고유 ID
-  } catch (e) {
+  } catch (e: any) {
+    alert(`[디버그] 구글 사용자 프로필 가져오기 예외 발생: ${e.message}`);
     console.warn('[BibleProvider] Failed to fetch Google user ID:', e);
     return null;
   }
@@ -80,6 +85,12 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setGoogleUserId(uid);
         subscribeToVerseData(uid);
         console.log('[BibleProvider] ✅ Firestore 연결됨. 사용자 ID:', uid);
+      } else {
+        console.warn('[BibleProvider] ⚠️ 구글 프로필 권한 누락으로 인한 강제 재로그인 요청');
+        localStorage.removeItem('gdrive_token');
+        localStorage.removeItem('gdrive_token_expires_at');
+        alert('앱의 클라우드 저장 기능 권한이 업데이트되었습니다. 원활한 저장을 위해 다시 한 번 [구글 계정으로 시작하기]를 눌러 로그인해 주세요.');
+        window.location.reload();
       }
     };
 
@@ -110,10 +121,10 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (JSON.stringify(prev[key]) !== JSON.stringify(next[key])) {
             const docRef = doc(db, 'users', googleUserId, 'verseData', key);
             const entry = next[key];
-            if (!entry?.note && !entry?.crossRef && !entry?.sermon) {
+            if (!entry || (!entry.note && !entry.crossRef && !entry.sermon)) {
               deleteDoc(docRef).catch(console.error);
             } else {
-              setDoc(docRef, entry, { merge: true }).catch(console.error);
+              setDoc(docRef, entry).catch(console.error);
             }
           }
         });

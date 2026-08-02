@@ -167,7 +167,7 @@ export const initGoogleApi = (onInit: () => void) => {
     try {
       tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: GAPI_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata',
+        scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
         callback: (response: any) => {
           if (response.error !== undefined) {
             console.error('GSI auth error:', response);
@@ -246,11 +246,7 @@ export const gdriveWebService = {
       };
       
       try {
-        if (accessToken === null) {
-          tokenClient.requestAccessToken({prompt: 'consent'});
-        } else {
-          tokenClient.requestAccessToken({prompt: ''});
-        }
+        tokenClient.requestAccessToken();
       } catch (err) {
         reject(err);
       }
