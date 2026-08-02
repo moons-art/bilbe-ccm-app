@@ -92,6 +92,28 @@ async function createWindow() {
 
   // Hymnal IPC 등록 (기존 호환성 유지)
   const { registerHymnalIPC } = await import('./hymnalIPC')
+
+  // 설교문 전용 새 창 열기 핸들러
+  ipcMain.removeHandler('open-sermon-editor'); // 중복 등록 방지
+  ipcMain.handle('open-sermon-editor', (event, sermonId) => {
+    const editorWin = new BrowserWindow({
+      width: 1200,
+      height: 900,
+      title: '설교문 작성 - 새 창',
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.mjs'),
+        webSecurity: true,
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    });
+    if (VITE_DEV_SERVER_URL) {
+      editorWin.loadURL(`${VITE_DEV_SERVER_URL}#/sermon-editor/${sermonId}`);
+    } else {
+      editorWin.loadURL(`http://localhost:${FIXED_PORT}/index.html#/sermon-editor/${sermonId}`);
+    }
+    return true;
+  });
   registerHymnalIPC(win)
 
   if (VITE_DEV_SERVER_URL) {

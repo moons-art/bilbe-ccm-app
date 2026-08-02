@@ -4,24 +4,6 @@ import { searchService } from '../services/searchService';
 import { BibleParser } from '../services/bibleParser';
 import { BibleContext, type CopyMode } from './BibleContext';
 import { bibleDB } from '../utils/indexedDB';
-import { db } from '../api/firebaseConfig';
-import { doc, collection, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
-
-// ── Google userinfo API로 사용자 고유 ID(sub) 가져오기 ──────────────────────
-// Firebase Auth 없이 기존 구글 OAuth 토큰으로 사용자 ID를 가져옵니다.
-const fetchGoogleUserId = async (token: string): Promise<string | null> => {
-  try {
-    const res = await fetch(
-      `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}`
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.id || data.sub || null; // Google 고유 ID
-  } catch (e) {
-    console.warn('[BibleProvider] Failed to fetch Google user ID:', e);
-    return null;
-  }
-};
 
 export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const DEFAULT_KRV: BibleVersion = {
@@ -40,95 +22,11 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [showVersionInCopy, setShowVersionInCopy] = useState<boolean>(true);
   const [verseData, setVerseData] = useState<Record<string, { note?: string; crossRef?: string; sermon?: string }>>({});
   const [showAnnotations, setShowAnnotations] = useState<boolean>(true);
-  const [googleUserId, setGoogleUserId] = useState<string | null>(null);
-
+  
   // ✅ 로딩 완료 및 DB 덮어쓰기 방지를 위한 초기화 완료 플래그
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
   // ✅ 인덱싱 중복 방지를 위한 Ref
   const indexedVersionIds = useRef<Set<string>>(new Set());
-  // Firestore 구독 해제 함수 Ref
-  const unsubscribeVerseDataRef = useRef<(() => void) | null>(null);
-
-  // ── Firestore verseData 동기화 함수 ─────────────────────────────────────
-  const subscribeToVerseData = (uid: string) => {
-    // 기존 구독 해제
-    if (unsubscribeVerseDataRef.current) {
-      unsubscribeVerseDataRef.current();
-    }
-    const versesCol = collection(db, 'users', uid, 'verseData');
-    const unsubscribe = onSnapshot(versesCol, (snapshot) => {
-      const data: Record<string, { note?: string; crossRef?: string; sermon?: string }> = {};
-      snapshot.forEach(docSnap => {
-        data[docSnap.id] = docSnap.data() as any;
-      });
-      setVerseData(data);
-    }, (error) => {
-      console.warn('[BibleProvider] Firestore offline/sync error (정상 - 오프라인 캐시 사용 중):', error.code);
-    });
-    unsubscribeVerseDataRef.current = unsubscribe;
-  };
-
-  // ── 구글 로그인 이벤트 감지 → 사용자 ID 가져오기 ────────────────────────
-  useEffect(() => {
-    const handleAuth = async () => {
-      const { gdriveWebService } = await import('../api/gdriveWebService');
-      const token = gdriveWebService.getAccessToken();
-      if (!token || token === 'mock_local_token_123') return; // 로컬 개발 모드 제외
-
-      const uid = await fetchGoogleUserId(token);
-      if (uid) {
-        setGoogleUserId(uid);
-        subscribeToVerseData(uid);
-        console.log('[BibleProvider] ✅ Firestore 연결됨. 사용자 ID:', uid);
-      }
-    };
-
-    window.addEventListener('gdrive_authenticated', handleAuth);
-    // 이미 로그인된 경우 토큰이 존재하면 즉시 실행
-    handleAuth();
-
-    return () => {
-      window.removeEventListener('gdrive_authenticated', handleAuth);
-      if (unsubscribeVerseDataRef.current) {
-        unsubscribeVerseDataRef.current();
-      }
-    };
-  }, []);
-
-  // ── verseData 저장 함수 (Firestore + 로컬 state 동기화) ─────────────────
-  const syncVerseData = (
-    newData: Record<string, { note?: string; crossRef?: string; sermon?: string }> |
-             ((prev: Record<string, { note?: string; crossRef?: string; sermon?: string }>) =>
-               Record<string, { note?: string; crossRef?: string; sermon?: string }>)
-  ) => {
-    setVerseData(prev => {
-      const next = typeof newData === 'function' ? newData(prev) : newData;
-
-      // Firestore 동기화 (로그인된 경우에만)
-      if (googleUserId) {
-        Object.keys(next).forEach(key => {
-          if (JSON.stringify(prev[key]) !== JSON.stringify(next[key])) {
-            const docRef = doc(db, 'users', googleUserId, 'verseData', key);
-            const entry = next[key];
-            if (!entry?.note && !entry?.crossRef && !entry?.sermon) {
-              deleteDoc(docRef).catch(console.error);
-            } else {
-              setDoc(docRef, entry, { merge: true }).catch(console.error);
-            }
-          }
-        });
-        // 삭제된 키도 Firestore에서 제거
-        Object.keys(prev).forEach(key => {
-          if (!(key in next)) {
-            const docRef = doc(db, 'users', googleUserId, 'verseData', key);
-            deleteDoc(docRef).catch(console.error);
-          }
-        });
-      }
-
-      return next;
-    });
-  };
 
   // 1. 초기 데이터 로드 및 Hydration
   useEffect(() => {
@@ -358,7 +256,7 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }),
       setCopyMode, setShowVersionInCopy,
       lineHeight, setLineHeight: (val) => setLineHeight(Math.max(1.3, val)),
-      verseData, setVerseData: syncVerseData,
+      verseData, setVerseData,
       showAnnotations, setShowAnnotations
     }}>
       {children}

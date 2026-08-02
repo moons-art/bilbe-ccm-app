@@ -4,7 +4,7 @@ import { imageCache } from '../utils/imageCache';
 const GAPI_CLIENT_ID = '786503545807-v0340nhgjnd3rg3i3k03i9r7jrpdnr0h.apps.googleusercontent.com';
 
 // ✅ 로컬 개발 전용 구글 계정 우회 플래그 (배포 시 false로 변경)
-export const IS_LOCAL_DEV = false;
+export const IS_LOCAL_DEV = true;
 
 // 구글 API 초기화 상태
 let isGapiLoaded = false;

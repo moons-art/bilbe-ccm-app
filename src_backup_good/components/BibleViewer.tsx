@@ -3,10 +3,8 @@ import { createPortal } from 'react-dom';
 import type { BibleVersion, Verse } from '../types/bible';
 import { useBible } from '../stores/BibleContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, X, MessageSquare, Link2, FileEdit, Trash2, Send, Type, Plus, Minus } from 'lucide-react';
+import { Copy, X, MessageSquare, Link2, FileEdit, Trash2 } from 'lucide-react';
 import { BIBLE_LIST } from '../constants/bibleMeta';
-import { BiblePopup } from './BiblePopup';
-import type { PopupState } from './BiblePopup';
 
 interface BibleViewerProps {
   selectedVersions: BibleVersion[];
@@ -92,72 +90,15 @@ const VerseItem = React.memo<{
 });
 
 export const BibleViewer = React.memo<BibleViewerProps>(({ 
-  selectedVersions, currentBookId, currentChapter = 1, highlightVerse, fontSize = 16, lineHeight, isMainPane = true, headerRightNode, onCopyToSermon, onSendToSermon
+  selectedVersions, currentBookId, currentChapter = 1, highlightVerse, fontSize = 16, lineHeight, isMainPane = true, headerRightNode, onCopyToSermon
 }) => {
   const scrollContainerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [selectedVerses, setSelectedVerses] = useState<Set<number>>(new Set());
   
   const { copyMode, versions, showVersionInCopy, verseData, setVerseData, showAnnotations, setShowAnnotations } = useBible();
 
-  const [popups, setPopups] = useState<PopupState[]>([]);
-  const [topZIndex, setTopZIndex] = useState(() => {
-    window.__topZIndex = window.__topZIndex || 10000;
-    return window.__topZIndex;
-  });
-
-  const [fontSizes, setFontSizes] = useState(() => {
-    try {
-      const saved = localStorage.getItem('bible-app-editor-fonts');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return { note: 15, crossRef: 15, sermon: 15 };
-  });
-
-  useEffect(() => {
-    localStorage.setItem('bible-app-editor-fonts', JSON.stringify(fontSizes));
-  }, [fontSizes]);
-
-  const handleIconClick = React.useCallback((v: number, type: 'note' | 'crossRef' | 'sermon', e: React.MouseEvent) => {
-    e.stopPropagation();
-    const id = `${currentBookId}_${currentChapter}_${v}_${type}`;
-    setPopups(prev => {
-      if (prev.find(p => p.id === id)) {
-        return prev.map(p => p.id === id ? { ...p, zIndex: (window.__topZIndex || 10000) + 1 } : p);
-      }
-      return [...prev, {
-        id, bookId: currentBookId, chapter: currentChapter, verse: v, panel: type,
-        pos: { x: 0, y: 0 }, size: { width: Math.min(600, window.innerWidth * 0.9), height: 350 },
-        zIndex: (window.__topZIndex || 10000) + 1
-      }];
-    });
-    window.__topZIndex = (window.__topZIndex || 10000) + 1;
-    setTopZIndex(window.__topZIndex);
-  }, [currentBookId, currentChapter, topZIndex]);
-
-  const closePopup = React.useCallback((id: string) => setPopups(prev => prev.filter(p => p.id !== id)), []);
-  
-  const bringToFront = React.useCallback((id: string) => {
-    setPopups(prev => prev.map(p => p.id === id ? { ...p, zIndex: (window.__topZIndex || 10000) + 1 } : p));
-    window.__topZIndex = (window.__topZIndex || 10000) + 1;
-    setTopZIndex(window.__topZIndex);
-  }, [topZIndex]);
-  
-  const updatePopupPos = React.useCallback((id: string, dx: number, dy: number) => {
-    setPopups(prev => prev.map(p => p.id === id ? { ...p, pos: { x: p.pos.x + dx, y: p.pos.y + dy } } : p));
-  }, []);
-
-  const updatePopupSize = React.useCallback((id: string, w: number, h: number) => {
-    setPopups(prev => prev.map(p => p.id === id ? { ...p, size: { width: w, height: h } } : p));
-  }, []);
-
-  const handleFontSizeChange = React.useCallback((delta: number, panel: string) => {
-    setFontSizes((prev: any) => {
-      const current = prev[panel] || 15;
-      const next = Math.max(10, Math.min(30, current + delta));
-      return { ...prev, [panel]: next };
-    });
-  }, []);
-
+  const [activePanel, setActivePanel] = useState<'note' | 'crossRef' | 'sermon' | null>(null);
+  const [activeVerse, setActiveVerse] = useState<number | null>(null);
 
   const displayData = useMemo(() => {
     return selectedVersions.map(version => {
@@ -174,8 +115,7 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
 
   useEffect(() => {
     if (highlightVerse) {
-      // Fire scroll twice: immediately, and after dual-view transition (approx 300ms)
-      const doScroll = () => {
+      const timer = setTimeout(() => {
         scrollContainerRefs.current.forEach((container: HTMLDivElement | null) => {
           if (!container) return;
           const verseElement = container.querySelector(`[data-verse="${highlightVerse}"]`);
@@ -183,16 +123,17 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
             verseElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         });
-      };
-      
-      const t1 = setTimeout(doScroll, 50);
-      const t2 = setTimeout(doScroll, 400); // 400ms handles the sliding animation delay
-      
-      return () => { clearTimeout(t1); clearTimeout(t2); };
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [highlightVerse, currentBookId, currentChapter, selectedVersions]);
+  }, [highlightVerse, currentBookId, currentChapter]);
 
   const toggleVerse = React.useCallback((verseNum: number) => {
+    if (activePanel) {
+      setActivePanel(null);
+      setActiveVerse(null);
+      return;
+    }
     setSelectedVerses(prev => {
       const newSelected = new Set(prev);
       if (newSelected.has(verseNum)) {
@@ -202,9 +143,12 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
       }
       return newSelected;
     });
-  }, []);
+  }, [activePanel]);
 
-  
+  const handleIconClick = React.useCallback((v: number, type: 'note' | 'crossRef' | 'sermon', e: React.MouseEvent) => {
+    setActivePanel(type);
+    setActiveVerse(v);
+  }, []);
 
   const handleAdvancedCopy = async () => {
     if (selectedVerses.size === 0) return;
@@ -386,12 +330,12 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
       {/* Floating Action Button via Portal */}
       {createPortal(
         <AnimatePresence>
-          {selectedVerses.size > 0 && (
+          {selectedVerses.size > 0 && !activePanel && (
             <motion.div 
               initial={{ y: 50, opacity: 0, x: "-50%" }}
               animate={{ y: 0, opacity: 1, x: "-50%" }}
               exit={{ y: 50, opacity: 0, x: "-50%" }}
-              className="fixed bottom-6 left-1/2 bg-slate-900 shadow-2xl rounded-2xl px-2 py-1.5 flex items-center gap-1 z-[999999] border border-slate-700/50 backdrop-blur-md overflow-x-auto max-w-[95vw] custom-scrollbar"
+              className="fixed bottom-6 left-1/2 bg-slate-900 shadow-2xl rounded-2xl px-2 py-1.5 flex items-center gap-1 z-[10000] border border-slate-700/50 backdrop-blur-md overflow-x-auto max-w-[95vw] custom-scrollbar"
             >
             <div className="flex items-center gap-2 px-3 shrink-0">
               <span className="text-white font-black text-sm tracking-tight">{selectedVerses.size}절</span>
@@ -413,9 +357,10 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
                 <div className="w-px h-4 bg-slate-700 mx-1 shrink-0"></div>
                 <div className="flex items-center gap-1">
                   <button 
-                    onClick={(e) => {
+                    onClick={() => {
                       const firstVerse = Array.from(selectedVerses).sort((a,b)=>a-b)[0];
-                      handleIconClick(firstVerse, 'note', e);
+                      setActiveVerse(firstVerse);
+                      setActivePanel('note');
                       setShowAnnotations(true);
                       setSelectedVerses(new Set());
                     }}
@@ -424,9 +369,10 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
                     <MessageSquare className="w-4 h-4" /> 주석
                   </button>
                   <button 
-                    onClick={(e) => {
+                    onClick={() => {
                       const firstVerse = Array.from(selectedVerses).sort((a,b)=>a-b)[0];
-                      handleIconClick(firstVerse, 'crossRef', e);
+                      setActiveVerse(firstVerse);
+                      setActivePanel('crossRef');
                       setShowAnnotations(true);
                       setSelectedVerses(new Set());
                     }}
@@ -435,9 +381,10 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
                     <Link2 className="w-4 h-4" /> 관주
                   </button>
                   <button 
-                    onClick={(e) => {
+                    onClick={() => {
                       const firstVerse = Array.from(selectedVerses).sort((a,b)=>a-b)[0];
-                      handleIconClick(firstVerse, 'sermon', e);
+                      setActiveVerse(firstVerse);
+                      setActivePanel('sermon');
                       setShowAnnotations(true);
                       setSelectedVerses(new Set());
                     }}
@@ -484,26 +431,206 @@ export const BibleViewer = React.memo<BibleViewerProps>(({
       document.body
       )}
 
-      {/* Portal for Popups */}
+      {/* Annotation Panel Modal via Portal */}
       {createPortal(
         <AnimatePresence>
-          {popups.map(p => (
-            <BiblePopup 
-              key={p.id}
-              popup={p}
-              onClose={closePopup}
-              onBringToFront={bringToFront}
-              onUpdatePos={updatePopupPos}
-              onUpdateSize={updatePopupSize}
-              verseData={verseData}
-              setVerseData={setVerseData}
-              fontSizes={fontSizes}
-              handleFontSizeChange={handleFontSizeChange}
-              onSendToSermon={onSendToSermon}
-            />
-          ))}
-        </AnimatePresence>,
-        document.body
+          {activePanel && activeVerse && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 z-[10000] overflow-hidden flex flex-col"
+            >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center gap-2">
+                {activePanel === 'note' && <MessageSquare className="w-4 h-4 text-yellow-600" />}
+                {activePanel === 'crossRef' && <Link2 className="w-4 h-4 text-blue-600" />}
+                {activePanel === 'sermon' && <FileEdit className="w-4 h-4 text-indigo-600" />}
+                
+                <span className="font-extrabold text-sm text-slate-800">
+                  {BIBLE_LIST.find(b => b.id === currentBookId)?.name} {currentChapter}장 {activeVerse}절
+                  {activePanel === 'note' && ' 주석'}
+                  {activePanel === 'crossRef' && ' 관주'}
+                  {activePanel === 'sermon' && ' 구절노트'}
+                </span>
+              </div>
+              
+              <div className="flex items-center gap-1">
+                <button 
+                  title="전체 삭제"
+                  className="p-1.5 hover:bg-red-100 rounded-full transition-colors text-red-500"
+                  onClick={() => {
+                    const key = `${currentBookId}_${currentChapter}_${activeVerse}`;
+                    setVerseData(prev => {
+                      const next = { ...prev };
+                      
+                      // Bidirectional deletion for crossRef
+                      if (activePanel === 'crossRef' && next[key]?.crossRef) {
+                        const currentContent = next[key].crossRef;
+                        const matches = currentContent.match(/([가-힣]{1,4})\s*(\d+)[장:\s]+(\d+)[절]?/g) || [];
+                        const myBookName = BIBLE_LIST.find(b => b.id === currentBookId)?.name || currentBookId;
+                        const myRef = `${myBookName} ${currentChapter}:${activeVerse}`;
+                        
+                        matches.forEach(m => {
+                          const parts = m.match(/([가-힣]{1,4})\s*(\d+)[장:\s]+(\d+)/);
+                          if (parts) {
+                            const [_, bookStr, chStr, vsStr] = parts;
+                            const targetBook = BIBLE_LIST.find(b => b.name.startsWith(bookStr) || b.id === bookStr);
+                            if (targetBook) {
+                              const targetKey = `${targetBook.id}_${chStr}_${vsStr}`;
+                              if (next[targetKey] && next[targetKey].crossRef) {
+                                next[targetKey] = { ...next[targetKey] };
+                                next[targetKey].crossRef = next[targetKey].crossRef
+                                  .split('\n')
+                                  .filter(r => r !== myRef)
+                                  .join('\n')
+                                  .trim();
+                              }
+                            }
+                          }
+                        });
+                      }
+
+                      if (next[key]) {
+                        delete next[key][activePanel];
+                      }
+                      return next;
+                    });
+                    setActivePanel(null);
+                    setActiveVerse(null);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={() => {
+                    setActivePanel(null);
+                    setActiveVerse(null);
+                  }}
+                  className="p-1.5 hover:bg-slate-200 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-500" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-white flex flex-col gap-2">
+              <textarea 
+                autoFocus
+                className="w-full h-32 p-3 text-sm text-slate-900 bg-slate-50 font-medium border border-slate-200 rounded-xl outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 transition-all resize-none placeholder:text-slate-400"
+                placeholder={`${activePanel === 'crossRef' ? '관주 구절을 입력하세요 (예: 창 1:2)' : '내용을 입력하세요...'}`}
+                value={verseData[`${currentBookId}_${currentChapter}_${activeVerse}`]?.[activePanel] || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const key = `${currentBookId}_${currentChapter}_${activeVerse}`;
+                  setVerseData(prev => ({
+                    ...prev,
+                    [key]: {
+                      ...prev[key],
+                      [activePanel]: val
+                    }
+                  }));
+                }}
+                onBlur={() => {
+                  const key = `${currentBookId}_${currentChapter}_${activeVerse}`;
+                  const currentContent = verseData[key]?.[activePanel] || '';
+                  if (activePanel === 'crossRef') {
+                    // Auto-link logic for crossRef
+                    const matches = currentContent.match(/([가-힣]{1,4})\s*(\d+)[장:\s]+(\d+)[절]?/g);
+                    if (matches) {
+                      setVerseData(prev => {
+                        const next = { ...prev };
+                        const myBookName = BIBLE_LIST.find(b => b.id === currentBookId)?.name || currentBookId;
+                        const myRef = `${myBookName} ${currentChapter}:${activeVerse}`;
+                        
+                        matches.forEach(m => {
+                          const parts = m.match(/([가-힣]{1,4})\s*(\d+)[장:\s]+(\d+)/);
+                          if (parts) {
+                            const [_, bookStr, chStr, vsStr] = parts;
+                            const targetBook = BIBLE_LIST.find(b => b.name.startsWith(bookStr) || b.id === bookStr);
+                            if (targetBook) {
+                              const targetKey = `${targetBook.id}_${chStr}_${vsStr}`;
+                              if (targetKey !== key) {
+                                if (!next[targetKey]) next[targetKey] = {};
+                                const existingTarget = next[targetKey].crossRef ? next[targetKey].crossRef.split('\n') : [];
+                                if (!existingTarget.includes(myRef)) {
+                                  existingTarget.push(myRef);
+                                  next[targetKey] = {
+                                    ...next[targetKey],
+                                    crossRef: existingTarget.join('\n')
+                                  };
+                                }
+                              }
+                            }
+                          }
+                        });
+                        return next;
+                      });
+                    }
+                  }
+                }}
+              />
+              
+              {/* Tag display for cross references */}
+              {activePanel === 'crossRef' && verseData[`${currentBookId}_${currentChapter}_${activeVerse}`]?.crossRef && (
+                <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-slate-100">
+                  {(() => {
+                    const currentContent = verseData[`${currentBookId}_${currentChapter}_${activeVerse}`].crossRef;
+                    const matches = currentContent.match(/([가-힣]{1,4})\s*(\d+)[장:\s]+(\d+)[절]?/g) || [];
+                    
+                    return matches.map((m, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 text-[11px] font-bold border border-blue-100">
+                        {m}
+                        <button 
+                          className="hover:bg-blue-200 rounded-full p-0.5 text-blue-500 hover:text-blue-700 transition-colors"
+                          onClick={() => {
+                            const key = `${currentBookId}_${currentChapter}_${activeVerse}`;
+                            setVerseData(prev => {
+                              const next = { ...prev };
+                              
+                              // Bidirectional deletion
+                              const myBookName = BIBLE_LIST.find(b => b.id === currentBookId)?.name || currentBookId;
+                              const myRef = `${myBookName} ${currentChapter}:${activeVerse}`;
+                              const parts = m.match(/([가-힣]{1,4})\s*(\d+)[장:\s]+(\d+)/);
+                              if (parts) {
+                                const [_, bookStr, chStr, vsStr] = parts;
+                                const targetBook = BIBLE_LIST.find(b => b.name.startsWith(bookStr) || b.id === bookStr);
+                                if (targetBook) {
+                                  const targetKey = `${targetBook.id}_${chStr}_${vsStr}`;
+                                  if (next[targetKey] && next[targetKey].crossRef) {
+                                    next[targetKey] = { ...next[targetKey] };
+                                    next[targetKey].crossRef = next[targetKey].crossRef
+                                      .split('\n')
+                                      .filter(r => r !== myRef)
+                                      .join('\n')
+                                      .trim();
+                                  }
+                                }
+                              }
+                              
+                              const currentContent = next[key]?.[activePanel] || '';
+                              const newContent = currentContent.replace(m, '').trim();
+                              next[key] = {
+                                ...next[key],
+                                [activePanel]: newContent
+                              };
+                              
+                              return next;
+                            });
+                          }} 
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>,
+      document.body
       )}
     </div>
   );

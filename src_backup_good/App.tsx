@@ -73,16 +73,16 @@ const BibleNavBar: React.FC<BibleNavBarProps> = ({
   };
 
   return (
-    <div className={`flex flex-nowrap items-center gap-x-1.5 p-1.5 bg-white border-b border-slate-200 shadow-sm sticky top-0 z-20 overflow-x-auto custom-scrollbar ${side === 'right' ? 'bg-slate-50/50' : ''}`}>
+    <div className={`flex flex-wrap items-center gap-x-2 gap-y-2 p-2 bg-white border-b border-slate-200 shadow-sm sticky top-0 z-20 ${side === 'right' ? 'bg-slate-50/50' : ''}`}>
       {/* 1. Quick Find Input with Search Button - Darkened for visibility */}
-      <div className="relative group w-28 sm:w-32 shrink-0">
+      <div className="relative group min-w-[140px] flex-1 sm:flex-none">
         <input 
           type="text"
           value={localQuery}
           onChange={handleChange}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder="성경구절(창 1)"
-          className="w-full h-8 bg-slate-100 border border-slate-300 rounded-md pl-2 pr-6 text-[10px] font-black text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-red-400 focus:ring-1 focus:ring-red-500/5 transition-all outline-none"
+          placeholder="성경구절 (예: 창 1)"
+          className="w-full h-9 bg-slate-100 border border-slate-300 rounded-lg pl-3 pr-8 text-xs font-black text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-red-400 focus:ring-2 focus:ring-red-500/5 transition-all outline-none"
         />
         <button 
           onClick={() => handleSearch()}
@@ -93,13 +93,13 @@ const BibleNavBar: React.FC<BibleNavBarProps> = ({
         </button>
       </div>
 
-      <div className="flex items-center gap-0.5 bg-slate-100 rounded-md p-0.5 border border-slate-200 shrink-0">
+      <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 border border-slate-200">
         {/* Book Selector */}
         <div className="relative group">
           <select 
             value={nav.bookId}
             onChange={(e) => setNav({ bookId: e.target.value, chapter: 1, verse: undefined })}
-            className="bg-transparent text-[11px] font-black text-slate-800 pl-1.5 pr-4 py-1 outline-none appearance-none cursor-pointer hover:bg-white rounded-md transition-colors min-w-[45px]"
+            className="bg-transparent text-[11px] font-black text-slate-800 pl-1.5 pr-4 py-1 outline-none appearance-none cursor-pointer hover:bg-white rounded-md transition-colors min-w-[50px]"
           >
             {BIBLE_LIST.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
@@ -113,7 +113,7 @@ const BibleNavBar: React.FC<BibleNavBarProps> = ({
           <select 
             value={nav.chapter}
             onChange={(e) => setNav({ ...nav, chapter: parseInt(e.target.value, 10), verse: undefined })}
-            className="bg-transparent text-[11px] font-black text-slate-800 pl-1.5 pr-4 py-1 outline-none appearance-none cursor-pointer hover:bg-white rounded-md transition-colors min-w-[32px]"
+            className="bg-transparent text-[11px] font-black text-slate-800 pl-1.5 pr-4 py-1 outline-none appearance-none cursor-pointer hover:bg-white rounded-md transition-colors min-w-[35px]"
           >
             {Array.from({ length: BIBLE_LIST.find(b => b.id === nav.bookId)?.chapters || 1 }, (_, i) => (
               <option key={i + 1} value={i + 1}>{i + 1}장</option>
@@ -129,7 +129,7 @@ const BibleNavBar: React.FC<BibleNavBarProps> = ({
           <select 
             value={nav.verse || ''}
             onChange={(e) => setNav({ ...nav, verse: e.target.value ? parseInt(e.target.value, 10) : undefined })}
-            className="bg-transparent text-[11px] font-black text-slate-800 pl-1.5 pr-4 py-1 outline-none appearance-none cursor-pointer hover:bg-white rounded-md transition-colors min-w-[32px]"
+            className="bg-transparent text-[11px] font-black text-slate-800 pl-1.5 pr-4 py-1 outline-none appearance-none cursor-pointer hover:bg-white rounded-md transition-colors min-w-[35px]"
           >
             <option value="">절</option>
             {Array.from({ length: 150 }, (_, i) => (
@@ -269,15 +269,7 @@ const MainApp: React.FC = () => {
   const sermonSidebarRef = useRef<SermonSidebarRef>(null);
 
   // Sermon Sidebar state
-  const [sermonDockPosition, setSermonDockPosition] = useState<DockPosition>(() => {
-    const saved = localStorage.getItem('bible-app-sermon-dock');
-    return (saved as DockPosition) || 'right';
-  });
-
-  // 상태 변경시 로컬스토리지 저장
-  useEffect(() => {
-    localStorage.setItem('bible-app-sermon-dock', sermonDockPosition);
-  }, [sermonDockPosition]);
+  const [sermonDockPosition, setSermonDockPosition] = useState<DockPosition>('right');
   const [isSermonCollapsed, setIsSermonCollapsed] = useState(false);
   const [sermonSidebarWidth, setSermonSidebarWidth] = useState(360);
   const [sermonSidebarHeight, setSermonSidebarHeight] = useState(350);
@@ -363,8 +355,8 @@ const MainApp: React.FC = () => {
   }, [isResizing]);
 
   // Navigation State 분리
-  const [leftNav, setLeftNav] = useState({ bookId: 'GEN', chapter: 1, verse: 1, scrollTrigger: 0 });
-  const [rightNav, setRightNav] = useState({ bookId: 'GEN', chapter: 1, verse: 1, scrollTrigger: 0 });
+  const [leftNav, setLeftNav] = useState({ bookId: 'GEN', chapter: 1, verse: 1 });
+  const [rightNav, setRightNav] = useState({ bookId: 'GEN', chapter: 1, verse: 1 });
   
   // 우측 창 전용 번역본 상태 (단일 선택)
   const [rightSelectedVersionId, setRightSelectedVersionId] = useState<string>('built-in-krv');
@@ -481,7 +473,7 @@ const MainApp: React.FC = () => {
   };
 
   // ✅ 1단계: 강제 로그인 스플래시 화면
-  if (false && !isAuthenticated) {
+  if (!isAuthenticated) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white font-sans">
         <div className="text-center flex flex-col items-center">
@@ -719,142 +711,153 @@ const MainApp: React.FC = () => {
           <main 
             className="flex-1 flex flex-col relative z-10 overflow-hidden transition-all duration-75"
             style={{
-              marginRight: isSermonSidebarOpen && sermonDockPosition === 'right' && !isSermonCollapsed && !isSearchOpen ? `${sermonSidebarWidth}px` : 0,
+              marginRight: isSermonSidebarOpen && sermonDockPosition === 'right' && !isSermonCollapsed ? `${sermonSidebarWidth}px` : 0,
               marginBottom: isSermonSidebarOpen && sermonDockPosition === 'bottom' && !isSermonCollapsed ? `${sermonSidebarHeight}px` : 0,
             }}
           >
         {/* Header */}
-        <header className={`min-h-16 border-b border-slate-200 flex items-center px-4 md:px-6 py-3 gap-4 bg-white sticky top-0 z-30 shadow-sm overflow-x-auto custom-scrollbar ${currentTab === 'bible' ? 'flex-col xl:flex-row' : 'flex-row'}`}>
-          
-          {/* 첫째 줄 (Row 1): 왼쪽 사이드바 토글, 복사메뉴, 주석검색, 노트검색, 주석보기 */}
-          <div className={`flex items-center gap-3 shrink-0 flex-nowrap ${currentTab === 'bible' ? 'w-full xl:w-auto' : 'w-auto'}`}>
+        <header className="min-h-16 border-b border-slate-200 flex flex-wrap items-center px-4 md:px-6 py-2 gap-x-6 gap-y-3 bg-white sticky top-0 z-30 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
             <div className="flex items-center shrink-0">
               <button 
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="p-2.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 shrink-0 shadow-sm border border-transparent hover:border-slate-200"
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-500 shrink-0"
               >
                 <Menu className="w-5 h-5" />
               </button>
+              <TooltipIcon text="누르면 앨범관리 사이드바가 열립니다." />
             </div>
 
             {currentTab === 'bible' && (
-              <div className="flex items-center gap-3 shrink-0 flex-nowrap">
-                {/* 복사메뉴 (더 크게) */}
-                <div className="flex items-center bg-slate-100 rounded-lg border border-slate-200 p-1 shadow-inner shrink-0 whitespace-nowrap">
-                  {['default', 'niv+krv', 'all'].map((m) => (
+              <div className="flex flex-wrap items-center gap-3 ml-0 sm:ml-2">
+                <div className="flex items-center shrink-0">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight mr-1">복사설정</span>
+                  <div className="flex items-center bg-slate-100 rounded-md border border-slate-200">
+                    {['default', 'niv+krv', 'all'].map((m) => (
+                      <button 
+                        key={m} 
+                        onClick={() => setCopyMode(m as any)}
+                        className={`px-1 py-0.5 rounded-[4px] text-[9px] tracking-tighter font-black transition-all ${copyMode === m ? 'bg-white text-red-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                      >
+                        {m === 'default' ? '개역' : m === 'niv+krv' ? '개역+NIV' : '전체'}
+                      </button>
+                    ))}
+                    <div className="w-px h-2.5 bg-slate-200 mx-0.5"></div>
                     <button 
-                      key={m} 
-                      onClick={() => setCopyMode(m as any)}
-                      className={`px-3 py-1.5 rounded-md text-xs tracking-tight font-black transition-all ${copyMode === m ? 'bg-white text-indigo-600 shadow-md ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
+                      onClick={() => setShowVersionInCopy(!showVersionInCopy)}
+                      className={`px-1 py-0.5 rounded-[4px] text-[9px] tracking-tighter font-black transition-all ${!showVersionInCopy ? 'bg-white text-red-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                     >
-                      {m === 'default' ? '개역' : m === 'niv+krv' ? '개역+NIV' : '전체 복사'}
+                      번역본표시안함
                     </button>
-                  ))}
-                  <div className="w-px h-4 bg-slate-300 mx-1.5"></div>
-                  <button 
-                    onClick={() => setShowVersionInCopy(!showVersionInCopy)}
-                    className={`px-3 py-1.5 rounded-md text-xs tracking-tight font-black transition-all ${!showVersionInCopy ? 'bg-white text-red-600 shadow-md ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
-                  >
-                    번역본 숨기기
-                  </button>
+                  </div>
                 </div>
-
-                <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1 shrink-0"></div>
-
-                {/* 검색 및 숨기기 툴 */}
-                <div className="flex items-center gap-2 shrink-0 flex-nowrap">
+                
+                <div className="hidden sm:block w-px h-6 bg-slate-200 mx-1"></div>
+                
+                <div className="flex flex-wrap items-center gap-2 mr-0 sm:mr-2">
                   <button 
                     onClick={(e) => { e.stopPropagation(); setShowNoteSearch(true); }}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 text-xs font-extrabold text-yellow-700 transition-colors shadow-sm whitespace-nowrap"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 text-[11px] font-bold text-yellow-700 transition-colors shadow-sm"
                   >
-                    <Search className="w-4 h-4" /> 주석검색
+                    <Search className="w-3.5 h-3.5" /> 주석검색
                   </button>
                   <button 
                     onClick={(e) => { e.stopPropagation(); setShowSermonSearch(true); }}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-xs font-extrabold text-emerald-700 transition-colors shadow-sm whitespace-nowrap"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-[11px] font-bold text-indigo-700 transition-colors shadow-sm"
                   >
-                    <Search className="w-4 h-4" /> 노트검색
+                    <Search className="w-3.5 h-3.5" /> 노트검색
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleSermonSidebar(); }}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 text-[11px] font-bold text-red-700 transition-colors shadow-sm"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" /> 설교노트
                   </button>
                   <button 
                     onClick={(e) => { e.stopPropagation(); setShowAnnotations(!showAnnotations); }}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-xs font-extrabold text-slate-600 transition-colors shadow-sm whitespace-nowrap"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-[11px] font-bold text-slate-600 transition-colors shadow-sm"
                   >
-                    {showAnnotations ? <EyeOff className="w-4 h-4 text-slate-400" /> : <Eye className="w-4 h-4 text-indigo-500" />}
+                    {showAnnotations ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5 text-indigo-500" />}
                     주석 {showAnnotations ? '숨기기' : '보기'}
                   </button>
                 </div>
+                
+                <div className="w-full sm:w-auto flex items-center mt-1 sm:mt-0 gap-3">
+                  <button 
+                    onClick={() => {
+                      if (!isDualView) {
+                      setRightSelectedVersionId('built-in-krv');
+                      setRightNav({ ...leftNav });
+                    }
+                    setIsDualView(!isDualView);
+                  }}
+                  className={`flex items-center justify-center gap-2 px-3 py-1.5 rounded-xl transition-all shadow-sm active:scale-95 border ${isDualView ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`}
+                  title="두 개 창 보기 (설교 준비용)"
+                >
+                  <div className="flex gap-1">
+                    <div className={`w-1.5 h-3.5 rounded-sm ${isDualView ? 'bg-white' : 'bg-indigo-400'}`} />
+                    <div className={`w-1.5 h-3.5 rounded-sm ${isDualView ? 'bg-white/60' : 'bg-indigo-200'}`} />
+                  </div>
+                  <span className="text-xs font-black tracking-tight">본문 듀얼뷰</span>
+                </button>
               </div>
+            </div>
+            )}
+            
+            {currentTab === 'hymnal' && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                   <div className="text-sm font-bold text-slate-800">찬송/CCM 관리자</div>
+                   <button 
+                     onClick={() => setShowAllTooltips(!showAllTooltips)}
+                     className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all ${showAllTooltips ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
+                   >
+                     말풍선 {showAllTooltips ? '끄기' : '켜기'}
+                   </button>
+                   <button 
+                     onClick={() => setShowSettings(true)}
+                     className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl transition-all active:scale-95 group shadow-sm border border-red-100"
+                     title="도움말 및 설치 가이드"
+                   >
+                     <span className="text-[10px] font-black">사용법</span>
+                     <Settings className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-500" />
+                    </button>
+                  </div>
+                </div>
             )}
           </div>
 
-          {/* 둘째 줄 (Row 2): 듀얼뷰, 설교노트, 성경검색, 설정 */}
-          {currentTab === 'bible' && (
-            <div className="flex flex-nowrap items-center gap-3 w-full xl:w-auto xl:ml-auto border-t xl:border-t-0 border-slate-100 pt-3 xl:pt-0 shrink-0">
-              <button 
-                onClick={() => {
-                  if (!isDualView) {
-                    setRightSelectedVersionId('built-in-krv');
-                    setRightNav({ ...leftNav });
-                  }
-                  setIsDualView(!isDualView);
-                }}
-                className={`flex items-center justify-center gap-2 px-4 py-2 rounded-xl transition-all shadow-sm active:scale-95 border ${isDualView ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100'} whitespace-nowrap shrink-0`}
-              >
-                <div className="flex gap-1 shrink-0">
-                  <div className={`w-1.5 h-4 rounded-sm ${isDualView ? 'bg-white' : 'bg-indigo-400'}`} />
-                  <div className={`w-1.5 h-4 rounded-sm ${isDualView ? 'bg-white/60' : 'bg-indigo-200'}`} />
+            <div className="flex-1"></div>
+
+          {/* 참조본문 닫기 버튼은 이제 위 헤더 내부로 이동되었습니다 */}
+
+          <div className="ml-auto flex items-center gap-4">
+            {currentTab === 'bible' && (
+              <>
+                <div className="flex -space-x-2">
+                  {versions.filter(v => selectedVersionIds.includes(v.id)).map(v => (
+                    <div key={v.id} className="px-2 h-8 rounded-full bg-red-100 border-2 border-white flex items-center justify-center text-[10px] font-bold text-red-600 min-w-[32px]" title={v.name}>
+                      {v.name.substring(0, 2)}
+                    </div>
+                  ))}
                 </div>
-                <span className="text-sm font-black tracking-tight shrink-0">본문 듀얼뷰</span>
-              </button>
-
-              {/* 설교노트 버튼 - 새 디자인 */}
-              <button 
-                onClick={(e) => { e.stopPropagation(); toggleSermonSidebar(); }}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-extrabold transition-all shadow-md hover:shadow-lg active:scale-95 border border-indigo-700 whitespace-nowrap shrink-0"
-              >
-                <FileEdit className="w-4 h-4 shrink-0" /> 
-                설교노트
-              </button>
-
-              {/* 성경검색 및 설정 */}
-              <div className="ml-auto flex items-center gap-3 shrink-0">
                 <button 
                   onClick={() => setIsSearchOpen(!isSearchOpen)}
-                  className={`flex items-center gap-2 px-5 py-2 rounded-xl transition-all duration-300 shadow-sm border ${isSearchOpen ? 'bg-red-600 text-white border-red-700' : 'bg-red-50 text-red-600 hover:bg-red-100 border-red-200'} whitespace-nowrap shrink-0`}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 ${isSearchOpen ? 'bg-red-600 text-white shadow-lg' : 'bg-red-50 text-red-600 hover:bg-red-600 hover:text-white'}`}
+                  title="검색 창 열기/닫기"
                 >
-                  <Search className={`w-4 h-4 shrink-0 ${isSearchOpen ? 'animate-pulse' : ''}`} />
-                  <span className="text-sm font-black whitespace-nowrap shrink-0">성경 검색</span>
+                  <Search className={`w-5 h-5 ${isSearchOpen ? 'animate-pulse' : ''}`} />
+                  <span className="text-sm font-black whitespace-nowrap">성경 검색</span>
                 </button>
                 <button 
                   onClick={() => setShowSettings(true)}
-                  className="p-2.5 bg-slate-50 hover:bg-slate-200 rounded-xl text-slate-500 transition-colors border border-slate-200 shrink-0"
+                  className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
                 >
-                  <Settings className="w-5 h-5 shrink-0" />
+                  <Settings className="w-5 h-5" />
                 </button>
-              </div>
-            </div>
-          )}
-
-          {currentTab === 'hymnal' && (
-            <div className="flex items-center gap-3 ml-auto shrink-0 flex-nowrap">
-               <div className="hidden sm:block text-sm font-bold text-slate-800 whitespace-nowrap">찬송/CCM 관리자</div>
-               <div className="flex items-center gap-2 shrink-0">
-                 <button 
-                   onClick={() => setShowAllTooltips(!showAllTooltips)}
-                   className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border ${showAllTooltips ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'} whitespace-nowrap shrink-0`}
-                 >
-                   말풍선 {showAllTooltips ? '끄기' : '켜기'}
-                 </button>
-                 <button 
-                   onClick={() => setShowSettings(true)}
-                   className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl transition-all active:scale-95 group shadow-sm border border-red-200 whitespace-nowrap shrink-0"
-                 >
-                   <span className="text-xs font-black shrink-0">사용법</span>
-                   <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500 shrink-0" />
-                 </button>
-               </div>
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </header>
 
         {/* Content Area */}
@@ -915,7 +918,7 @@ const MainApp: React.FC = () => {
                     />
                     <div className="flex-1 overflow-hidden">
                        <BibleViewer 
-                        key={`left-${leftNav.bookId}-${leftNav.chapter}-${leftNav.verse}-${leftNav.scrollTrigger}-${selectedVersionIds.join(',')}`}
+                        key={`left-${leftNav.bookId}-${leftNav.chapter}-${selectedVersionIds.join(',')}`}
                         selectedVersions={versions.filter(v => selectedVersionIds.includes(v.id))} 
                         currentBookId={leftNav.bookId}
                         currentChapter={leftNav.chapter}
@@ -968,7 +971,7 @@ const MainApp: React.FC = () => {
                       />
                       <div className="flex-1 overflow-hidden bg-slate-50/30">
                         <BibleViewer 
-                          key={`right-${rightNav.bookId}-${rightNav.chapter}-${rightNav.verse}-${rightNav.scrollTrigger}-${rightSelectedVersionId}`}
+                          key={`right-${rightNav.bookId}-${rightNav.chapter}-${rightSelectedVersionId}`}
                           selectedVersions={versions.filter(v => v.id === rightSelectedVersionId)} 
                           currentBookId={rightNav.bookId}
                           currentChapter={rightNav.chapter}
@@ -1286,35 +1289,15 @@ const MainApp: React.FC = () => {
                       return (
                         <div 
                           key={verseKey} 
-                          className="px-3 py-2 bg-white border border-slate-200 rounded-lg hover:border-yellow-400 hover:bg-yellow-50 transition-all flex flex-col gap-1"
+                          onClick={() => {
+                            setShowNoteSearch(false);
+                            setIsDualView(true);
+                            handleQuickNav(`${bId} ${chStr}:${vNum}`, 'right');
+                          }}
+                          className="px-4 py-3 bg-white border border-slate-200 rounded-lg hover:border-yellow-400 hover:bg-yellow-50 hover:shadow-sm cursor-pointer transition-all flex flex-col gap-1"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-[11px] font-black text-yellow-600 shrink-0">
-                              {BIBLE_LIST.find(b => b.id === bId)?.name || bId} {chStr}:{vsStr}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowNoteSearch(false);
-                                  setLeftNav({ bookId: bId, chapter: parseInt(chStr, 10), verse: vNum, scrollTrigger: Date.now() });
-                                }}
-                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-md text-[11px] font-bold transition-colors cursor-pointer border border-slate-200"
-                              >
-                                본문
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowNoteSearch(false);
-                                  setIsDualView(true);
-                                  setRightNav({ bookId: bId, chapter: parseInt(chStr, 10), verse: vNum, scrollTrigger: Date.now() });
-                                }}
-                                className="px-2.5 py-1 bg-yellow-100 hover:bg-yellow-200 active:bg-yellow-300 text-yellow-800 rounded-md text-[11px] font-bold transition-colors cursor-pointer border border-yellow-200"
-                              >
-                                듀얼뷰
-                              </button>
-                            </div>
+                          <div className="text-[11px] font-black text-yellow-600">
+                            {BIBLE_LIST.find(b => b.id === bId)?.name || bId} {chStr}:{vsStr}
                           </div>
                           <p className="text-xs text-slate-600 truncate whitespace-nowrap overflow-hidden">
                             {data.note}
@@ -1378,35 +1361,15 @@ const MainApp: React.FC = () => {
                       return (
                         <div 
                           key={verseKey} 
-                          className="px-3 py-2 bg-white border border-slate-200 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-all flex flex-col gap-1"
+                          onClick={() => {
+                            setShowSermonSearch(false);
+                            setIsDualView(true);
+                            handleQuickNav(`${bId} ${chStr}:${vNum}`, 'right');
+                          }}
+                          className="px-4 py-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 hover:shadow-sm cursor-pointer transition-all flex flex-col gap-1"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-[11px] font-black text-indigo-600 shrink-0">
-                              {BIBLE_LIST.find(b => b.id === bId)?.name || bId} {chStr}:{vsStr}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowSermonSearch(false);
-                                  setLeftNav({ bookId: bId, chapter: parseInt(chStr, 10), verse: vNum, scrollTrigger: Date.now() });
-                                }}
-                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-md text-[11px] font-bold transition-colors cursor-pointer border border-slate-200"
-                              >
-                                본문
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowSermonSearch(false);
-                                  setIsDualView(true);
-                                  setRightNav({ bookId: bId, chapter: parseInt(chStr, 10), verse: vNum, scrollTrigger: Date.now() });
-                                }}
-                                className="px-2.5 py-1 bg-indigo-100 hover:bg-indigo-200 active:bg-indigo-300 text-indigo-800 rounded-md text-[11px] font-bold transition-colors cursor-pointer border border-indigo-200"
-                              >
-                                듀얼뷰
-                              </button>
-                            </div>
+                          <div className="text-[11px] font-black text-indigo-600">
+                            {BIBLE_LIST.find(b => b.id === bId)?.name || bId} {chStr}:{vsStr}
                           </div>
                           <p className="text-xs text-slate-600 truncate whitespace-nowrap overflow-hidden">
                             {data.sermon}
