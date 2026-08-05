@@ -69,6 +69,39 @@ const gdriveFetch = async (url: string, options: RequestInit = {}, retries = 2):
   return response;
 };
 
+export interface GoogleUserProfile {
+  id: string;
+  name: string;
+  email: string;
+  picture: string;
+}
+
+export const fetchUserProfile = async (token: string): Promise<GoogleUserProfile | null> => {
+  try {
+    const res = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}`);
+    if (!res.ok) throw new Error('Network error');
+    const data = await res.json();
+    if (!data.id && !data.sub) return null;
+    const profile = {
+      id: data.id || data.sub,
+      name: data.name || '',
+      email: data.email || '',
+      picture: data.picture || ''
+    };
+    localStorage.setItem('offline_user_profile', JSON.stringify(profile));
+    return profile;
+  } catch {
+    const cached = localStorage.getItem('offline_user_profile');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {}
+    }
+    return null;
+  }
+};
+
+
 export const initGoogleApi = (onInit: () => void) => {
   if (IS_LOCAL_DEV) {
     console.log('[gdriveWebService] 🛠️ Local dev mode: Bypassing Google API init & Auth');
@@ -88,8 +121,15 @@ export const initGoogleApi = (onInit: () => void) => {
     console.error('[Google API Init Error]', error);
     if (!hasError) {
       hasError = true;
-      // 에러 메시지 노출 후 로딩 해제
-      alert('구글 API 초기화 중 오류가 발생했습니다. 구글 드라이브 동기화 기능이 제한될 수 있습니다. \n에러: ' + (error?.message || error || '알 수 없음'));
+      const offlineProfile = localStorage.getItem('offline_user_profile');
+      if (offlineProfile) {
+        console.log('[gdriveWebService] Offline mode detected, using cached profile.');
+        accessToken = 'offline_token'; // 오프라인 식별용 더미 토큰
+        setTimeout(() => { window.dispatchEvent(new Event('gdrive_authenticated')); }, 300);
+      } else {
+        // 에러 메시지 노출 후 로딩 해제
+        alert('구글 API 초기화 중 오류가 발생했습니다. 구글 드라이브 동기화 기능이 제한될 수 있습니다. \n에러: ' + (error?.message || error || '알 수 없음'));
+      }
       onInit(); // 무한 로딩 상태를 풀기 위해 콜백 강제 실행
     }
   };
@@ -110,11 +150,21 @@ export const initGoogleApi = (onInit: () => void) => {
           setTimeout(() => { window.dispatchEvent(new Event('gdrive_authenticated')); }, 300);
           return;
         } else {
-          // 만료된 토큰 제거
+          // 만료된 토큰 갱신 시도 (Silent Refresh)
+          console.log('[gdriveWebService] Cached token expired. Attempting silent refresh...');
+          if (tokenClient) {
+            try {
+              tokenClient.requestAccessToken({ prompt: 'none' });
+              return; // 콜백에서 완료됨
+            } catch (e) {
+              console.warn('[gdriveWebService] Silent refresh failed', e);
+            }
+          }
+          // 실패 시 삭제
           localStorage.removeItem('gdrive_token');
           localStorage.removeItem('gdrive_token_expires_at');
           accessToken = null;
-          console.log('[gdriveWebService] Cached token expired, cleared.');
+          console.log('[gdriveWebService] Cached token cleared.');
         }
       }
       
@@ -255,36 +305,55 @@ export const gdriveWebService = {
 
   // 파일 다운로드 (JSON)
   downloadJsonFile: async (fileName: string) => {
-    if (!accessToken) throw new Error('Not authenticated');
-    
-    // 1. 파일 검색 (fetch 기반)
-    const q = encodeURIComponent(`name='${fileName}' and trashed=false`);
-    const searchRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
-    if (!searchRes.ok) throw new Error(`Drive API ${searchRes.status}: file search failed`);
-    const searchData = await searchRes.json();
-    const files = searchData.files;
-    
-    if (!files || files.length === 0) {
-      return null; // 파일 없음
+    const cacheKey = `gdrive_json_cache_${fileName}`;
+    if (!accessToken || accessToken === 'offline_token') {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) return JSON.parse(cached);
+      throw new Error('Not authenticated and no cache');
     }
     
-    // 2. 파일 내용 가져오기
-    const fileId = files[0].id;
-    const response = await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
+    try {
+      // 1. 파일 검색 (fetch 기반)
+      const q = encodeURIComponent(`name='${fileName}' and trashed=false`);
+      const searchRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (!searchRes.ok) throw new Error(`Drive API ${searchRes.status}: file search failed`);
+      const searchData = await searchRes.json();
+      const files = searchData.files;
+      
+      if (!files || files.length === 0) {
+        return null; // 파일 없음
       }
-    });
-    
-    if (!response.ok) throw new Error('Failed to download file');
-    return await response.json();
+      
+      // 2. 파일 내용 가져오기
+      const fileId = files[0].id;
+      const response = await gdriveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to download file');
+      const data = await response.json();
+      localStorage.setItem(cacheKey, JSON.stringify(data));
+      return data;
+    } catch (err) {
+      console.warn(`[gdriveWebService] Failed to download JSON ${fileName}, falling back to cache`, err);
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) return JSON.parse(cached);
+      throw err;
+    }
   },
 
   // JSON 업로드 (multipart/related)
   uploadJsonFile: async (fileName: string, data: any) => {
-    if (!accessToken) throw new Error('Not authenticated');
+    const cacheKey = `gdrive_json_cache_${fileName}`;
+    localStorage.setItem(cacheKey, JSON.stringify(data)); // 선제적 캐시 갱신
+    if (!accessToken || accessToken === 'offline_token') {
+      console.warn(`[gdriveWebService] Offline mode, saved ${fileName} locally. Will sync later.`);
+      return; // 오프라인 모드에서는 캐시만 업데이트하고 반환
+    }
 
     const q = encodeURIComponent(`name='${fileName}' and trashed=false`);
     const searchRes = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
@@ -530,7 +599,11 @@ export const gdriveWebService = {
 
   // 특정 폴더 내의 이미지 파일 목록 실시간 조회 및 이름순 정렬
   listFolderFiles: async (folderName: string): Promise<any[]> => {
-    if (!accessToken) return [];
+    const cacheKey = `gdrive_folder_cache_${folderName}`;
+    if (!accessToken || accessToken === 'offline_token') {
+      const cached = localStorage.getItem(cacheKey);
+      return cached ? JSON.parse(cached) : [];
+    }
     try {
       const folderId = await gdriveWebService.getOrCreateFolder(folderName);
       
@@ -538,14 +611,17 @@ export const gdriveWebService = {
       const res = await gdriveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name,createdTime)&pageSize=1000`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error('Fetch failed');
       const data = await res.json();
       const files = data.files || [];
       // 한국어 자모음 및 숫자(자연 정렬) 기준 오름차순 정렬
-      return files.sort((a: any, b: any) => a.name.localeCompare(b.name, 'ko', { numeric: true }));
+      const sortedFiles = files.sort((a: any, b: any) => a.name.localeCompare(b.name, 'ko', { numeric: true }));
+      localStorage.setItem(cacheKey, JSON.stringify(sortedFiles));
+      return sortedFiles;
     } catch (err) {
-      console.error(`[gdriveWebService] listFolderFiles for folder '${folderName}' failed`, err);
-      return [];
+      console.warn(`[gdriveWebService] listFolderFiles for folder '${folderName}' failed, using cache`, err);
+      const cached = localStorage.getItem(cacheKey);
+      return cached ? JSON.parse(cached) : [];
     }
   },
 

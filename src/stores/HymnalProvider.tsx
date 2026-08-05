@@ -228,11 +228,8 @@ export const HymnalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     window.addEventListener('gdrive_authenticated', init);
     
-    import('../api/gdriveWebService').then(({ gdriveWebService }) => {
-      if (gdriveWebService.getAccessToken()) {
-        init();
-      }
-    });
+    // 비로그인 시에도 기본 악보 및 앨범 목록을 로드하기 위해 무조건 한 번 실행
+    init();
 
     return () => window.removeEventListener('gdrive_authenticated', init);
   }, []);

@@ -5,14 +5,8 @@ import { X, FileEdit, Plus, Calendar, Search, Save, ChevronRight, ChevronLeft, C
 import { db } from '../api/firebaseConfig';
 import { doc, collection, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 
-const fetchGoogleUserId = async (token: string): Promise<string | null> => {
-  try {
-    const res = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.id || data.sub || null;
-  } catch { return null; }
-};
+import { fetchUserProfile } from '../api/gdriveWebService';
+
 
 interface Sermon {
   id: string;
@@ -82,10 +76,10 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
       const { gdriveWebService } = await import('../api/gdriveWebService');
       const token = gdriveWebService.getAccessToken();
       if (!token || token === 'mock_local_token_123') return;
-      const uid = await fetchGoogleUserId(token);
-      if (uid) {
-        setGoogleUserId(uid);
-        subscribeToSermons(uid);
+      const profile = await fetchUserProfile(token);
+      if (profile && profile.id) {
+        setGoogleUserId(profile.id);
+        subscribeToSermons(profile.id);
       }
     };
     window.addEventListener('gdrive_authenticated', handleAuth);
@@ -608,21 +602,36 @@ export const SermonSidebar = forwardRef<SermonSidebarRef, SermonSidebarProps>(({
                   <Copy className="w-3.5 h-3.5" /> 전체 복사
                 </button>
               </div>
-              <input 
-                id="sermon-title-input"
-                type="text" 
-                placeholder="설교 제목..." 
-                className="w-full text-lg font-black text-slate-900 border-b border-slate-100 outline-none px-6 py-4 placeholder:text-slate-300 shrink-0"
-                value={editorTitle}
-                onChange={(e) => setEditorTitle(e.target.value)}
-              />
-              <textarea 
-                style={{ fontSize: `${sermonFontSize}px` }}
-                className="flex-1 w-full p-6 leading-relaxed text-slate-900 bg-white font-medium border-none outline-none resize-none placeholder:text-slate-400 custom-scrollbar"
-                placeholder="말씀을 이곳에 작성하세요..."
-                value={editorContent}
-                onChange={(e) => setEditorContent(e.target.value)}
-              />
+              <div className="relative flex-1 flex flex-col min-h-0">
+                <input 
+                  id="sermon-title-input"
+                  type="text" 
+                  disabled={!googleUserId}
+                  placeholder="설교 제목..." 
+                  className={`w-full text-lg font-black border-b border-slate-100 outline-none px-6 py-4 placeholder:text-slate-300 shrink-0 ${!googleUserId ? 'text-slate-400 bg-slate-50 opacity-80 cursor-not-allowed' : 'text-slate-900 bg-white'}`}
+                  value={editorTitle}
+                  onChange={(e) => setEditorTitle(e.target.value)}
+                />
+                <textarea 
+                  disabled={!googleUserId}
+                  style={{ fontSize: `${sermonFontSize}px` }}
+                  className={`flex-1 w-full p-6 leading-relaxed font-medium border-none outline-none resize-none placeholder:text-slate-400 custom-scrollbar ${!googleUserId ? 'text-slate-400 bg-slate-50 opacity-80 cursor-not-allowed' : 'text-slate-900 bg-white'}`}
+                  placeholder="말씀을 이곳에 작성하세요..."
+                  value={editorContent}
+                  onChange={(e) => setEditorContent(e.target.value)}
+                />
+                {!googleUserId && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50/50 backdrop-blur-[1px] z-10 p-6 text-center">
+                    <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center mb-4 text-slate-500 shadow-sm border border-slate-300">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    </div>
+                    <h3 className="text-slate-700 font-bold mb-2">로그인이 필요한 기능입니다</h3>
+                    <p className="text-sm text-slate-500 font-medium">
+                      왼쪽 탭 선택기 위쪽의 <strong>[구글 계정으로 로그인]</strong> 버튼을 눌러<br/>로그인하시면 설교노트를 영구적으로 저장할 수 있습니다.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </motion.aside>

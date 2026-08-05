@@ -11,14 +11,7 @@ interface Sermon {
   content?: string;
 }
 
-const fetchGoogleUserId = async (token: string): Promise<string | null> => {
-  try {
-    const res = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.id || data.sub || null;
-  } catch { return null; }
-};
+import { fetchUserProfile } from '../api/gdriveWebService';
 
 export const SermonListModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [sermons, setSermons] = useState<Sermon[]>([]);
@@ -31,12 +24,12 @@ export const SermonListModal: React.FC<{ onClose: () => void }> = ({ onClose }) 
       const { gdriveWebService } = await import('../api/gdriveWebService');
       const token = gdriveWebService.getAccessToken();
       if (!token || token === 'mock_local_token_123') return;
-      const uid = await fetchGoogleUserId(token);
-      if (!uid) return;
-      setGoogleUserId(uid);
+      const profile = await fetchUserProfile(token);
+      if (!profile || !profile.id) return;
+      setGoogleUserId(profile.id);
 
       if (unsubscribeRef.current) unsubscribeRef.current();
-      const sermonsCol = collection(db, 'users', uid, 'sermons');
+      const sermonsCol = collection(db, 'users', profile.id, 'sermons');
       const unsubscribe = onSnapshot(sermonsCol, (snapshot) => {
         const data: Sermon[] = [];
         snapshot.forEach(docSnap => {

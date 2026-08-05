@@ -40,6 +40,7 @@ export const BiblePopup: React.FC<BiblePopupProps> = ({
   const { id, bookId, chapter, verse, panel, pos, size, zIndex, endVerse } = popup;
   const currentFontSize = fontSizes[panel] || 15;
   const { versions } = useBible();
+  const isAuthenticated = !!localStorage.getItem('gdrive_token');
   
   const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -310,34 +311,45 @@ export const BiblePopup: React.FC<BiblePopupProps> = ({
             <div className="whitespace-pre-wrap">{readContent}</div>
           </div>
         ) : (
-          <textarea 
-            autoFocus
-            style={{ fontSize: `${currentFontSize}px` }}
-            className="w-full flex-1 p-3 text-slate-900 bg-slate-50 font-medium border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400/20 transition-all resize-none custom-scrollbar"
-            value={verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || ''}
-            onChange={(e) => {
-              const val = e.target.value;
-              const oldVal = verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || '';
-              const key = `${bookId}_${chapter}_${verse}`;
-              
-              setVerseData((prev: any) => {
-                let next = {
-                  ...prev,
-                  [key]: {
-                    ...prev[key],
-                    [panel]: val
+          <div className="relative flex-1 flex flex-col h-full">
+            <textarea 
+              autoFocus
+              disabled={!isAuthenticated}
+              style={{ fontSize: `${currentFontSize}px` }}
+              className={`w-full flex-1 p-3 font-medium border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-400/20 transition-all resize-none custom-scrollbar ${!isAuthenticated ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-80' : 'bg-slate-50 text-slate-900'}`}
+              value={verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                const oldVal = verseData[`${bookId}_${chapter}_${verse}`]?.[panel] || '';
+                const key = `${bookId}_${chapter}_${verse}`;
+                
+                setVerseData((prev: any) => {
+                  let next = {
+                    ...prev,
+                    [key]: {
+                      ...prev[key],
+                      [panel]: val
+                    }
+                  };
+
+                  if (panel === 'crossRef') {
+                    const currentBookName = BIBLE_LIST.find(b => b.id === bookId)?.name || '';
+                    next = syncBidirectionalCrossRefs(key, currentBookName, chapter, verse, val, oldVal, next);
                   }
-                };
 
-                if (panel === 'crossRef') {
-                  const currentBookName = BIBLE_LIST.find(b => b.id === bookId)?.name || '';
-                  next = syncBidirectionalCrossRefs(key, currentBookName, chapter, verse, val, oldVal, next);
-                }
-
-                return next;
-              });
-            }}
-          />
+                  return next;
+                });
+              }}
+            />
+            {!isAuthenticated && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50/50 backdrop-blur-[1px] rounded-xl text-slate-500 font-bold z-10 p-4 text-center border border-slate-200 shadow-inner">
+                <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center mb-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </div>
+                <p className="text-sm">로그인 후 노트와 관주를 작성하고<br/>클라우드에 영구 저장하세요.</p>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </motion.div>

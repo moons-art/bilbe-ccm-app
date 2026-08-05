@@ -6,27 +6,7 @@ import { BibleContext, type CopyMode } from './BibleContext';
 import { bibleDB } from '../utils/indexedDB';
 import { db } from '../api/firebaseConfig';
 import { doc, collection, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
-
-// ── Google userinfo API로 사용자 고유 ID(sub) 가져오기 ──────────────────────
-// Firebase Auth 없이 기존 구글 OAuth 토큰으로 사용자 ID를 가져옵니다.
-const fetchGoogleUserId = async (token: string): Promise<string | null> => {
-  try {
-    const res = await fetch(
-      `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}`
-    );
-    if (!res.ok) {
-      const errorText = await res.text();
-      alert(`[디버그] 구글 사용자 프로필 가져오기 실패 (HTTP ${res.status}): ${errorText}`);
-      return null;
-    }
-    const data = await res.json();
-    return data.id || data.sub || null; // Google 고유 ID
-  } catch (e: any) {
-    alert(`[디버그] 구글 사용자 프로필 가져오기 예외 발생: ${e.message}`);
-    console.warn('[BibleProvider] Failed to fetch Google user ID:', e);
-    return null;
-  }
-};
+import { fetchUserProfile } from '../api/gdriveWebService';
 
 export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const DEFAULT_KRV: BibleVersion = {
@@ -80,11 +60,11 @@ export const BibleProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const token = gdriveWebService.getAccessToken();
       if (!token || token === 'mock_local_token_123') return; // 로컬 개발 모드 제외
 
-      const uid = await fetchGoogleUserId(token);
-      if (uid) {
-        setGoogleUserId(uid);
-        subscribeToVerseData(uid);
-        console.log('[BibleProvider] ✅ Firestore 연결됨. 사용자 ID:', uid);
+      const profile = await fetchUserProfile(token);
+      if (profile && profile.id) {
+        setGoogleUserId(profile.id);
+        subscribeToVerseData(profile.id);
+        console.log('[BibleProvider] ✅ Firestore 연결됨. 사용자 ID:', profile.id);
       } else {
         console.warn('[BibleProvider] ⚠️ 구글 프로필 권한 누락으로 인한 강제 재로그인 요청');
         localStorage.removeItem('gdrive_token');

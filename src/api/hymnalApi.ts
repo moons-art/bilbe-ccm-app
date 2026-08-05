@@ -12,7 +12,7 @@ export const hymnalApi = {
       return { 
         albums: [
           { id: 'hymnal', name: '새찬송가', type: 'system' },
-          { id: 'misc', name: '기타파일앨범', type: 'system' }
+          { id: 'misc', name: '기타앨범', type: 'system' }
         ] 
       };
     }
@@ -35,7 +35,13 @@ export const hymnalApi = {
       const activeAlbums = settings.albums || [];
 
       // 2. music_data.json (찬송가 등 기본 DB) 다운로드
-      const data = await gdriveWebService.downloadJsonFile('music_data.json');
+      let data = null;
+      try {
+        data = await gdriveWebService.downloadJsonFile('music_data.json');
+      } catch (err) {
+        console.warn('[hymnalApi] Failed to download music_data.json, will use default', err);
+      }
+      
       if (data && data.length > 0) {
         baseSongs = data;
       } else {

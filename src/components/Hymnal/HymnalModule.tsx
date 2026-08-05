@@ -30,6 +30,7 @@ import { TooltipIcon } from '../TooltipIcon';
 
 const DriveImage = ({ fileId, alt, className }: { fileId: string, alt?: string, className?: string }) => {
   const [src, setSrc] = useState<string | null>(null);
+  const [isError, setIsError] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -47,16 +48,23 @@ const DriveImage = ({ fileId, alt, className }: { fileId: string, alt?: string, 
     }
 
     setSrc(null); // 곡이 바뀌면 이전 이미지를 즉시 지워서 로딩 상태 표시
+    setIsError(false);
 
     import('../../api/gdriveWebService').then(({ gdriveWebService }) => {
       gdriveWebService.downloadImageBlob(fileId).then(blobUrl => {
-        if (active && blobUrl) {
-          setSrc(blobUrl);
-          currentBlobUrl = blobUrl;
+        if (active) {
+          if (blobUrl) {
+            setSrc(blobUrl);
+            currentBlobUrl = blobUrl;
+          } else {
+            setIsError(true);
+          }
         } else if (blobUrl) {
           // 컴포넌트 언마운트 후 다운로드 완료된 경우 즉시 해제 (메모리 누수 방지)
           URL.revokeObjectURL(blobUrl);
         }
+      }).catch(() => {
+        if (active) setIsError(true);
       });
     });
     
@@ -65,7 +73,18 @@ const DriveImage = ({ fileId, alt, className }: { fileId: string, alt?: string, 
     };
   }, [fileId]);
 
-  if (!src) return <div className="w-full h-48 flex items-center justify-center bg-slate-100 text-slate-400">로딩 중...</div>;
+  if (isError) {
+    return (
+      <div className="w-full h-[50vh] flex flex-col items-center justify-center bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-500">
+        <ImageIcon className="w-12 h-12 text-slate-300 mb-3" />
+        <p className="font-bold text-slate-700 mb-1">앗, 로그아웃 또는 오프라인 상태입니다!</p>
+        <p className="text-sm">구글 계정이 연결되어 있지 않거나 인터넷 연결이 없어 새 악보를 다운받을 수 없습니다.</p>
+        <p className="text-xs text-slate-400 mt-2">(로그인 상태에서 한 번 이상 열어본 악보는 오프라인에서도 즉시 볼 수 있습니다.)</p>
+      </div>
+    );
+  }
+
+  if (!src) return <div className="w-full h-48 flex items-center justify-center bg-slate-100 text-slate-400 font-bold">악보 불러오는 중...</div>;
   
   return <img src={src} alt={alt} className={className} draggable={false} />;
 };
@@ -774,77 +793,6 @@ export const HymnalModule: React.FC = () => {
 
       {/* --- Modals (Provider 상태 사용) --- */}
       
-      {/* 앨범 설정 모달 */}
-      <AnimatePresence>
-        {showAlbumModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setShowAlbumModal(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" 
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-8 overflow-hidden"
-            >
-              <div className="flex items-center justify-between mb-8">
-                <h3 className="text-2xl font-black text-slate-800 tracking-tight">
-                  {editingAlbum ? '앨범 설정 수정' : '새 데이터 앨범 추가'}
-                </h3>
-              </div>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block pl-1">앨범 이름</label>
-                  <input 
-                    type="text" 
-                    value={albumInput}
-                    onChange={(e) => setAlbumInput(e.target.value)}
-                    className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl font-black text-slate-900 focus:outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-500 shadow-sm"
-                    placeholder="예: CCM 베스트 2024"
-                  />
-                </div>
-
-
-                <div className="flex gap-3 pt-4">
-                  <button 
-                    onClick={async () => {
-                      if (editingAlbum) {
-                        const oldName = editingAlbum.name;
-                        updateAlbum({ ...editingAlbum, name: albumInput });
-                        // Google Drive 폴더 이름 변경 로직 호출 (옵션)
-                        const { gdriveWebService } = await import('../../api/gdriveWebService');
-                        try {
-                          await gdriveWebService.renameFolder(`CEUM_Album_${oldName}`, `CEUM_Album_${albumInput}`);
-                        } catch(e) { console.log('Folder rename skipped or failed', e); }
-                      } else {
-                        addAlbum(albumInput);
-                      }
-                      setShowAlbumModal(false);
-                    }}
-                    className="flex-1 py-4 bg-red-600 text-white rounded-2xl font-black shadow-xl shadow-red-200 hover:bg-red-700 transition-all active:scale-95"
-                  >
-                    {editingAlbum ? '설정 저장' : '앨범 생성'}
-                  </button>
-                  {editingAlbum && (
-                    <button 
-                      onClick={() => {
-                        if (confirm('<주의!> 구글드라이브의 해당 폴더와 파일이 삭제 되어 복구되지 않습니다.\n정말로 삭제하시겠습니까?')) {
-                          deleteAlbum(editingAlbum.id);
-                          setShowAlbumModal(false);
-                        }
-                      }}
-                      className="p-4 bg-slate-100 text-red-500 rounded-2xl hover:bg-red-50 transition-all"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* 데이터 빌더 모달 */}
       <AnimatePresence>

@@ -9,7 +9,7 @@ import { HymnalModule } from './components/Hymnal/HymnalModule';
 import { HymnalSidebar } from './components/Hymnal/HymnalSidebar';
 import { ContiEditor } from './components/Hymnal/ContiEditor';
 import { SermonSidebar, type SermonSidebarRef, type DockPosition } from './components/SermonSidebar';
-import { Menu, Search, BookOpen, Settings, X, Plus, Check, ChevronLeft, ChevronRight, ChevronDown, Trash2, Edit2, Type, AlignLeft, Music, HelpCircle, FileEdit, Eye, EyeOff } from 'lucide-react';
+import { Menu, Search, BookOpen, Settings, X, Plus, Check, ChevronLeft, ChevronRight, ChevronDown, Trash2, Edit2, Type, AlignLeft, Music, HelpCircle, FileEdit, Eye, EyeOff, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { searchService, type SearchRange } from './services/searchService';
 import { BIBLE_BOOKS, BIBLE_LIST } from './constants/bibleMeta';
@@ -206,13 +206,39 @@ const MainApp: React.FC = () => {
   // ✅ 구글 API 초기화 (최초 1회)
   const [isApiLoaded, setIsApiLoaded] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(IS_LOCAL_DEV);
+  const [userProfile, setUserProfile] = useState<{name: string, email: string, picture: string} | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   React.useEffect(() => {
     initGoogleApi(() => {
       console.log('[App] Google API successfully initialized.');
       setIsApiLoaded(true);
     });
+
+    const handleAuth = async () => {
+      setIsAuthenticated(true);
+      const { gdriveWebService, fetchUserProfile } = await import('./api/gdriveWebService');
+      const token = gdriveWebService.getAccessToken();
+      if (token && token !== 'mock_local_token_123') {
+        const profile = await fetchUserProfile(token);
+        if (profile) {
+          setUserProfile(profile);
+        }
+      }
+    };
+    
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('gdrive_authenticated', handleAuth);
+    
+    return () => {
+      window.removeEventListener('gdrive_authenticated', handleAuth);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   const { 
@@ -480,80 +506,7 @@ const MainApp: React.FC = () => {
     }
   };
 
-  // ✅ 1단계: 강제 로그인 스플래시 화면
-  if (!isAuthenticated) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-900 text-white font-sans">
-        <div className="text-center flex flex-col items-center">
-          <div className="w-24 h-24 bg-indigo-500 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-indigo-500/50">
-            <span className="text-4xl font-black text-white">C</span>
-          </div>
-          <h1 className="text-4xl font-bold mb-4 text-white">CEUM BIBLE-CCM Cloud <span className="text-indigo-400">2.0</span></h1>
-          <p className="mb-6 text-slate-300 max-w-lg leading-relaxed text-sm text-left bg-slate-800/50 p-6 rounded-xl border border-slate-700">
-            <span className="block mb-2 font-bold text-indigo-300">📌 클라우드 동기화 안내</span>
-            • <strong>성경번역본, 악보</strong>를 추가하면 구글 드라이브에 자동 저장되고 다른 기기에 연동됩니다.<br /><br />
-            <span className="block mb-2 font-bold text-indigo-300">• 앱으로 사용하기</span>
-            사파리: 독에추가, 크롬:페이지를 앱으로 설치<br />
-            모바일: 홈화면 추가<br /><br />
-            <span className="block mb-2 font-bold text-indigo-300">• 업데이트 정보:</span> v.2026.8.3 성경앱 설교준비 기능 추가
-          </p>
-          <button 
-            className={`px-8 py-4 bg-white text-slate-900 rounded-xl font-bold text-lg hover:bg-slate-100 transition shadow-xl ${!isApiLoaded ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1'}`}
-            disabled={!isApiLoaded || isSyncing}
-            onClick={async () => {
-              setIsSyncing(true);
-              try {
-                // 앱에서 쓸 구글 API 인증 호출
-                const { gdriveWebService } = await import('./api/gdriveWebService');
-                const success = await gdriveWebService.login();
-                if (success) {
-                  // 시스템 기본 폴더 강제 할당 (절대 덮어쓰지 않고 ID만 반환됨)
-                  console.log('[System] Initializing default folders...');
-                  await Promise.all([
-                    gdriveWebService.getOrCreateFolder('CEUM_Bible_Data'),
-                    gdriveWebService.getOrCreateFolder('CEUM_ccm_data')
-                  ]);
-                  console.log('[System] Folders initialized.');
 
-                  setTimeout(() => {
-                    setIsAuthenticated(true);
-                    window.dispatchEvent(new Event('gdrive_authenticated'));
-                  }, 500);
-                } else {
-                  alert('로그인 실패: 구글 인증이 완료되지 않았습니다.');
-                }
-              } catch (e: any) {
-                console.error('[Login Fail]', e);
-                alert('로그인 처리 중 오류가 발생했습니다.\n상세 정보: ' + (e?.message || e));
-              } finally {
-                setIsSyncing(false);
-              }
-            }}
-          >
-            {isSyncing ? '클라우드 연동 중...' : (isApiLoaded ? '구글 계정으로 시작하기' : 'API 로딩 중...')}
-          </button>
-          
-          {/* 구글 드라이브 권한 문구 삭제 */}
-          
-          <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-            <p className="text-lg font-black text-red-400 leading-relaxed drop-shadow-md">
-              계정 로그인 후, 구글 클라우드와 앱의 동기화가 진행됩니다.<br/>
-              번역본과 악보가 뜰때까지 약 5-10초간 기다려 주세요 
-            </p>
-          </div>
-          
-          <div className="mt-4 p-3 bg-slate-800/50 border border-slate-700 rounded-xl text-left max-w-lg w-full">
-            <p className="text-xs text-slate-400 font-bold leading-relaxed">
-              * 앱이 흰 화면이거나 업데이트가 안되었으면 아래 설정 후 새로고침<br/>
-              <span className="text-indigo-300">설정 - Safari - 방문기록 및 웹사이트 데이터 지우기</span>
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ 2단계: 메인 앱 UI
   return (
     <div className="flex h-screen bg-background text-slate-200 overflow-y-auto overflow-x-hidden font-sans custom-scrollbar">
       {/* ... (sidebar content skipped for brevity in replacement) */}
@@ -583,6 +536,83 @@ const MainApp: React.FC = () => {
                   <span className="text-xl">성경CCM</span>
                 </h1>
                 {currentTab === 'bible' ? <BookOpen className="w-5 h-5 text-red-500" /> : <Music className="w-5 h-5 text-red-500" />}
+              </div>
+
+              {/* ✅ Auth (Login / Profile) Section */}
+              <div className="mb-6 relative z-10">
+                {!isAuthenticated ? (
+                  <div className="relative">
+                    <button
+                      onClick={async () => {
+                        const { gdriveWebService } = await import('./api/gdriveWebService');
+                        const success = await gdriveWebService.login();
+                        if (success) {
+                          await Promise.all([
+                            gdriveWebService.getOrCreateFolder('CEUM_Bible_Data'),
+                            gdriveWebService.getOrCreateFolder('CEUM_ccm_data')
+                          ]);
+                          setTimeout(() => window.dispatchEvent(new Event('gdrive_authenticated')), 500);
+                        } else {
+                          alert('로그인 실패: 구글 인증이 완료되지 않았습니다.');
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-2.5 py-3 px-3 bg-white border border-slate-200 text-slate-700 rounded-xl shadow-sm hover:shadow-md hover:border-slate-300 hover:bg-slate-50 transition-all active:scale-[0.97] group relative overflow-hidden"
+                    >
+                      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                      </svg>
+                      <div className="flex flex-col items-start leading-tight">
+                        <span className="text-[13px] font-extrabold tracking-tight">Google</span>
+                        <span className="text-[13px] font-extrabold tracking-tight">로그인</span>
+                      </div>
+                    </button>
+                    
+                    {/* Tooltip Icon positioned absolutely inside the button container */}
+                    <div className="absolute top-2 right-2">
+                      <TooltipIcon text="개인사용자화를 위해 구글 계정으로 로그인하세요. 모든 기기에서 노트와 악보가 실시간 연동됩니다." />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col bg-slate-50 border border-slate-200 p-3 rounded-2xl gap-3 shadow-sm">
+                    <div className="flex items-center gap-2.5 overflow-hidden">
+                      {userProfile?.picture ? (
+                        <img src={userProfile.picture} alt="Profile" className="w-9 h-9 rounded-full shadow-sm shrink-0 border border-slate-200" />
+                      ) : (
+                        <div className="w-9 h-9 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-sm font-black shrink-0 border border-indigo-200">
+                          {userProfile?.name?.charAt(0) || 'U'}
+                        </div>
+                      )}
+                      
+                      <div className="flex flex-col flex-1 min-w-0 pr-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-black text-slate-800 truncate">{userProfile?.name || '사용자'}</span>
+                          {isOffline && (
+                            <div className="shrink-0 p-0.5 bg-red-100 rounded-full" title="오프라인 모드">
+                              <WifiOff className="w-3 h-3 text-red-500" />
+                            </div>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-medium text-slate-500 truncate leading-tight">{userProfile?.email || ''}</span>
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={() => {
+                        if (confirm('로그아웃 하시겠습니까?')) {
+                          localStorage.removeItem('gdrive_token');
+                          localStorage.removeItem('gdrive_token_expires_at');
+                          window.location.reload();
+                        }
+                      }}
+                      className="w-full flex items-center justify-center py-2 text-xs font-black text-red-600 bg-white hover:bg-red-50 hover:text-red-700 rounded-xl transition-all border border-red-100 shadow-sm"
+                    >
+                      로그아웃
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* App Tab Selector */}
@@ -632,7 +662,13 @@ const MainApp: React.FC = () => {
                             </button>
                           )}
                           <button 
-                            onClick={() => setShowUploadModal(true)}
+                            onClick={() => {
+                              if (!isAuthenticated) {
+                                alert('번역본을 추가하려면 먼저 구글 계정으로 로그인해 주세요.');
+                                return;
+                              }
+                              setShowUploadModal(true);
+                            }}
                             className="p-1 hover:bg-slate-100 rounded-md transition-colors text-red-500"
                           >
                             <Plus className="w-4 h-4" />
@@ -648,18 +684,18 @@ const MainApp: React.FC = () => {
                              <div
                                key={v.id}
                                className={`
-                                 group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200
+                                 group flex items-center gap-2 p-2.5 rounded-xl cursor-pointer transition-all duration-200
                                  ${selectedVersionIds.includes(v.id) ? 'bg-red-50 text-red-700 ring-1 ring-red-100' : 'hover:bg-slate-50 text-slate-600'}
                                `}
                                onClick={() => toggleVersion(v.id)}
                              >
                                <div className={`
-                                 w-5 h-5 rounded-md border flex items-center justify-center transition-colors
+                                 w-4 h-4 shrink-0 rounded-md border flex items-center justify-center transition-colors
                                  ${selectedVersionIds.includes(v.id) ? 'bg-red-500 border-red-500' : 'border-slate-200'}
                                `}>
                                  {selectedVersionIds.includes(v.id) && <Check className="w-3 h-3 text-white" />}
                                </div>
-                               <span className="flex-1 text-sm font-medium truncate">{v.name}</span>
+                               <span className="flex-1 text-[13px] font-bold tracking-tighter truncate leading-tight">{v.name}</span>
                                
                                {/* ✅ 개별 삭제 버튼 - 시스템 번역본 제외 */}
                                {!v.isSystem && !v.isBuiltIn && (
